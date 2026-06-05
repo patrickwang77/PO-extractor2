@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PO 文件數字提取工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI','PingFang TC','Microsoft JhengHei',sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh;padding:20px}
+.header{text-align:center;margin-bottom:24px}
+.header h1{font-size:1.6rem;font-weight:700}
+.header p{color:#666;margin-top:5px;font-size:.85rem}
+.upload-zone{background:#fff;border:2.5px dashed #c0c8d8;border-radius:14px;padding:40px 20px;text-align:center;cursor:pointer;transition:all .2s;max-width:700px;margin:0 auto 24px}
+.upload-zone:hover,.upload-zone.dragover{border-color:#4f6ef7;background:#f5f7ff}
+.upload-zone h2{font-size:1rem;color:#333;margin-bottom:6px}
+.upload-zone p{font-size:.82rem;color:#888}
+.badges{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;margin-top:12px}
+.badge{background:#eef0ff;color:#4f6ef7;padding:3px 10px;border-radius:20px;font-size:.74rem;font-weight:600}
+#fileInput{display:none}
+.prog-wrap{max-width:700px;margin:0 auto 18px;display:none}
+.prog-label{font-size:.82rem;color:#555;margin-bottom:5px}
+.prog-bar{height:7px;background:#e0e4f0;border-radius:10px;overflow:hidden}
+.prog-fill{height:100%;background:linear-gradient(90deg,#4f6ef7,#7c3aed);border-radius:10px;transition:width .3s;width:0%}
+.results{max-width:1150px;margin:0 auto;display:none}
+.results-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.results-hdr h2{font-size:1rem}
+.btn{border:1.5px solid #e0e4f0;background:#fff;color:#555;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:.82rem;transition:all .15s}
+.btn:hover{border-color:#4f6ef7;color:#4f6ef7}
+.btn-primary{background:linear-gradient(135deg,#4f6ef7,#7c3aed);color:#fff;border:none;font-weight:600}
+.btn-primary:hover{opacity:.88;color:#fff}
+.btn-danger:hover{border-color:#f06;color:#f06}
+.card{background:#fff;border-radius:13px;box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:22px;overflow:hidden}
+.card-head{background:linear-gradient(135deg,#4f6ef7,#7c3aed);color:#fff;padding:13px 18px;display:flex;align-items:center;gap:9px}
+.card-head .fname{font-weight:600;flex:1;word-break:break-all;font-size:.9rem}
+.fmt-badge{background:rgba(255,255,255,.25);padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:700;white-space:nowrap}
+.card-body{padding:18px}
+.meta-row{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:16px}
+.meta-pill{background:#f5f7ff;border:1.5px solid #e8eaf6;border-radius:9px;padding:7px 12px;cursor:pointer}
+.meta-pill:hover{border-color:#4f6ef7}
+.meta-pill .ml{font-size:.66rem;color:#999;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.meta-pill .mv{font-size:.92rem;font-weight:700;color:#4f6ef7;font-family:'Courier New',monospace}
+.section-title{font-size:.76rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 8px}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+thead tr{background:#f0f3ff}
+th{padding:8px 10px;text-align:left;font-weight:700;color:#555;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid #e0e4f0;white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid #f0f2f5;vertical-align:top}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#fafbff}
+td.num{font-family:'Courier New',monospace;text-align:right}
+td.mono{font-family:'Courier New',monospace;color:#4f6ef7;font-weight:600}
+.total-row td{font-weight:700;background:#f5f7ff}
+.raw-toggle{font-size:.78rem;color:#4f6ef7;cursor:pointer;margin-top:12px;display:inline-block}
+.raw-text{margin-top:7px;background:#f4f6fa;border-radius:7px;padding:10px;font-size:.72rem;color:#555;max-height:140px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;display:none;font-family:monospace}
+.warn{background:#fffbe6;border:1px solid #ffe58f;border-radius:8px;padding:10px 13px;font-size:.82rem;color:#856404;margin-bottom:10px}
+.no-items{text-align:center;padding:18px;color:#aaa;font-size:.85rem}
+.toast{position:fixed;bottom:22px;right:22px;background:#1a1a2e;color:#fff;padding:9px 16px;border-radius:9px;font-size:.84rem;opacity:0;transform:translateY(8px);transition:all .25s;pointer-events:none;z-index:999}
+.toast.show{opacity:1;transform:translateY(0)}
+.sample-bar{max-width:700px;margin:0 auto 18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sample-bar span{font-size:.76rem;color:#888;font-weight:600;white-space:nowrap}
+.sample-btn{background:#f5f7ff;border:1.5px solid #e0e4f0;color:#4f6ef7;padding:4px 12px;border-radius:20px;font-size:.76rem;font-weight:600;cursor:pointer;transition:all .15s}
+.sample-btn:hover{background:#4f6ef7;color:#fff;border-color:#4f6ef7}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📋 PO 文件數字提取工具</h1>
+  <p>自動識別 28+ 種 PO 格式，提取訂單抬頭與品項明細 | 支援 PDF、圖片、Excel、CSV、Word</p>
+</div>
+
+<div class="upload-zone" id="uploadZone">
+  <div style="font-size:2.5rem;margin-bottom:9px">📂</div>
+  <h2>拖曳或點擊選擇檔案（可多選）</h2>
+  <p>支援格式：Verbatim / Satechi / ACCO / Acer / ALOGIC / CableMatters / CHD / OWC / Plugable / RaidSonic / Targus / TRENDnet / Voxmicro / TeraLink / 廣豫 / 銳力 / MCT茂傑 / QBIC和暢 / 同星 / 宏欣達 / 易捷 / 萬可 / 鴻才 / 台端 / 聯流 / 固德…</p>
+  <div class="badges">
+    <span class="badge">PDF</span><span class="badge">JPG/PNG</span>
+    <span class="badge">XLSX</span><span class="badge">CSV</span><span class="badge">DOCX</span>
+  </div>
+  <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.xlsx,.xls,.csv,.docx,.doc">
+</div>
+
+<div class="sample-bar">
+  <span>📂 載入範例：</span>
+  <button class="sample-btn" onclick="loadSample('QBIC')">QBIC 和暢採購單</button>
+  <button class="sample-btn" onclick="loadSample('SATECHI')">Satechi Requisition</button>
+  <button class="sample-btn" onclick="loadSample('STARTECH_UK')">StarTech UK PO</button>
+  <button class="sample-btn" onclick="loadSample('STARTECH_US')">StarTech US PO</button>
+</div>
+
+<div class="prog-wrap" id="progWrap">
+  <div class="prog-label" id="progLabel">處理中...</div>
+  <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+</div>
+
+<div class="results" id="results">
+  <div class="results-hdr">
+    <h2 id="resultsTitle">提取結果</h2>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" id="btnExport" style="display:none" onclick="exportCSV()">⬇ 匯出 CSV</button>
+      <button class="btn btn-danger" onclick="clearAll()">✕ 清除</button>
+    </div>
+  </div>
+  <div id="resultsList"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ─── Embedded Sample Data ──────────────────────────────────────────
+const SAMPLES={
+  QBIC:`和暢科技股份有限公司
+物料採購單
+公司電話: 02-2697-2000  公司傳真: 02-2697-2868
+製表日期: 2024/12/10  頁次: 1/1
+採購單別: Q331  物料採購單  交易幣別: USD  匯率: 32.43
+採購單號: 20241210002  課稅別: 應稅外加  營業稅率: 5%
+單據日期: 2024/12/10  採購人員: 20012 邱美玲
+廠商代號: 2025  廣明  付款條件: AP001 月結30天(次月10日付款)
+廠商全名: 廣明光電股份有限公司
+廠商地址: 桃園市龜山區華亞二路58-2號6樓
+聯絡人: jackie.wang 王俊雅  廠商電話: 03-3288090
+送貨地址: 新北市汐止區新台五路1段99號26樓之9
+價格條件: FOB THAILAND
+廠別代號: Q001  和暢科技-汐止廠
+確認碼: N
+備註: TDD-1000, Pan
+
+0001  KMTD08IO01801  200  0  PCS  75.5  15100  2025/03/28
+PCBA_TDD-1000_U1GSS021_9U1GSS021TGL0R_Docking Board
+8L,198*92.3mm,T=1.6mm
+
+0002  KMTD08IO01801  2800  0  PCS  75.5  211400  2025/04/30
+PCBA_TDD-1000_U1GSS021_9U1GSS021TGL0R_Docking Board
+8L,198*92.3mm,T=1.6mm
+
+0003  STD08ACX01Q01  200  0  PCS  21  4200  2025/03/28
+USB Docking Accessory box/U1GSS021_9U1GSS021TGL1R
+PSU YW180A2-2100858+USB TypeC Cable IQT202212035-0
+
+0004  STD08ACX01Q01  2800  0  PCS  21  58800  2025/04/30
+USB Docking Accessory box/U1GSS021_9U1GSS021TGL1R
+PSU YW180A2-2100858+USB TypeC Cable IQT202212035-0
+
+數量合計: 6000  採購金額: 289500  稅額: 14475  金額合計: 303975`,
+
+  STARTECH_UK:`StarTech.com Limited
+Updated purchase order copy
+Vendor  Delivery Address  ORDER NO.  POUK01-0016892-2
+QUANTA STORAGE INC.  STARTECH.COM LIMITED  DATE  2026-04-29
+(THAILAND)  DELIVERY TERMS  FOB
+MODE OF DELIVERY  Ocean
+CONFIRMED DOCK DATE  2026-06-30
+APPROVAL STATUS  Approved  PAYMENT TERMS  N060-INV
+
+Item number  Description  Vendor Item Number  Dock date  Quantity   Unit  Unit price  Amount
+132UE-  Thunderbolt 4 Dock HDMI  2026-06-30  504.00   ea  133.00  67,032.00
+TB4USB4DOC  DP
+K
+Quantity : 504  Site : UK   Warehouse : STUKWH01
+102B-USBC-  USB-C Dual Monitor  2026-06-30  1,000.00   ea  52.00  52,000.00
+MULTIPORT  Multiport Adapter - Dual
+4K HDMI
+Quantity : 1,000  Site : UK   Warehouse : STUKWH01
+
+Currency  Sales subtotal amount  Total discount  Charges  Sales tax  Total
+USD  119,032.00  0.00  0.00  0.00  119,032.00`,
+
+  STARTECH_US:`StarTech.com USA LLP
+Updated purchase order copy
+Vendor  Delivery Address  ORDER NO.  POUS01-0024398-2
+QUANTA STORAGE INC.  STARTECH.COM USA LLP  DATE  2026-04-14
+(THAILAND)  MODE OF DELIVERY  Ocean
+CONFIRMED DOCK DATE
+APPROVAL STATUS  Confirmed  PAYMENT TERMS  N060-INV
+
+Item number  Description  Vendor Item Number  Dock date  Quantity   Unit  Unit price  Amount
+DK31C4DPPD   Quad 4K USB-C Docking  2026-08-31  5,000.00   ea  131.00  655,000.00
+Station
+Quantity : 5,000  Site : US   Warehouse : STUSWH01
+
+Currency  Sales subtotal amount  Total discount  Charges  Sales tax  Total
+USD  655,000.00  0.00  0.00  0.00  655,000.00`,
+
+  SATECHI:`SATECHI
+Vendor: Quanta Storage Inc.
+3F No 188 Wenhua 2nd Rd, Guishan Shiang, Taoyuan County 333, Taiwan
+Bill To: Satechi
+7365 Mission Gorge Road Suite G
+San Diego CA 92120 United States
+Ship To: TBD
+
+Requisition Number: 3192026-03
+Requisition Date: 3/19/2026
+Expected Ex-Factory Date: 8/16/2026
+Currency: USD
+Incoterm: FOB
+Payment Terms: O/A 60 days
+Please acknowledge receipt of request within 1 business day.
+
+Vendor Item No.  Satechi Item No.  Description  Production Lead Time (days)  Quantity  Unit Price  Total
+9T8TES112T262R  ST-DT5CES-EU  Thunderbolt 5 CubeDock with SSD Enclosure (Silver) - Type F Plug  120  1500  $ 138.87  $ 208305.00
+9T8TES112T160R  ST-DT5CES-US  Thunderbolt 5 CubeDock with SSD Enclosure (Silver) - Type B Plug  120  1500  $ 138.87  $ 208305.00
+0  ST-DT4MDM-US  Thunderbolt 4 Multi-Display Docking Station - US  150  1000  $ 120.00  $ 120000.00
+
+Please confirm price and ex-factory date.  Total Quantity: 4000  Grand Total: $ 536610.00
+
+Issued by: Jessica Diaz
+Title: Sr. Supply Chain Ops Manager`
+};
+
+function loadSample(name){
+  const text=SAMPLES[name];
+  if(!text)return;
+  const fakeFile={name:name+'_sample.pdf',size:text.length,type:'application/pdf'};
+  render(fakeFile,text);
+  showToast('已載入範例：'+name);
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────
+function g(text,...pats){for(const p of pats){const m=text.match(p);if(m)return(m[1]||'').trim()}return''}
+function nn(s){return(s||'').replace(/\./g,'').replace(',','.')}
+function setP(pct,lbl){document.getElementById('progFill').style.width=pct+'%';document.getElementById('progLabel').textContent=lbl}
+function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
+function copyV(v){navigator.clipboard.writeText(v);showToast('已複製：'+v)}
+function ficon(t,n){if(t.includes('pdf')||n.endsWith('.pdf'))return'📄';if(t.startsWith('image'))return'🖼️';if(/xlsx|xls|sheet|excel/.test(t+n))return'📊';if(/csv/.test(t+n))return'📋';if(/word|doc/.test(t+n))return'📝';return'📎'}
+
+// ─── Line Item Builder Helper ──────────────────────────────────────
+// Extracts qty/unit_price/amount/delivery/description from a "rest" string
+function mkItem(lineNo, pn, rest, extraDesc){
+  const dateM=rest.match(/(\d{4}[\/\-]\d{2}[\/\-]\d{2})/);
+  const delivery=dateM?dateM[1].replace(/-/g,'/'):'' ;
+  const clean=rest.replace(/\d{4}[\/\-]\d{2}[\/\-]\d{2}/g,'');
+  const unitM=clean.match(/\b(PCS|EA|PC|個|顆|片|組|套|KIT|SET|ROLL|M\b|KG)\b/i);
+  const unit=unitM?unitM[1].toUpperCase():'PCS';
+  const nums=(clean.match(/[\d,]+\.?\d*/g)||[])
+    .map(n=>n.replace(/,/g,''))
+    .filter(n=>parseFloat(n)>0&&n.length<12);
+  const descParts=clean.split(/\s+/).filter(t=>
+    t.length>1&&
+    !/^[\d,\.]+$/.test(t)&&
+    !/^(PCS|EA|PC|個|顆|片|組|套|KIT|SET|ROLL|USD|NTD|EUR|CNY|RMB)$/i.test(t)
+  );
+  const desc=((descParts.join(' ')+(extraDesc?' '+extraDesc:'')).trim()).replace(/\s+/g,' ');
+  let qty='',unit_price='',amount='';
+  if(nums.length>=3){qty=nums[0];unit_price=nums[nums.length-2];amount=nums[nums.length-1];}
+  else if(nums.length===2){qty=nums[0];amount=nums[1];}
+  else if(nums.length===1)qty=nums[0];
+  return{line_no:lineNo,vendor_pn:pn,customer_pn:pn,description:desc,qty,unit,unit_price,amount,delivery_date:delivery};
+}
+
+// ─── Format Detection ──────────────────────────────────────────────
+function detectFmt(text){
+  // ── English / International ──
+  if(/verbatim/i.test(text)&&/ean-no\./i.test(text))return'VERBATIM';
+  if(/satechi/i.test(text)&&/requisition/i.test(text))return'SATECHI';
+  if(/acco\s*brands/i.test(text))return'ACCO';
+  if(/acer gadget/i.test(text))return'ACER';
+  if(/alogic/i.test(text)&&/vendor code/i.test(text))return'ALOGIC';
+  if(/cable matters/i.test(text))return'CABLEMATTERS';
+  if(/chd asia/i.test(text))return'CHD';
+  if(/owc europe|pobe\d/i.test(text))return'OWC_EU';
+  if(/startech\.com/i.test(text)||(/(POUK|POUS)\d{2}-\d{7}-\d/.test(text)))return'STARTECH';
+  if(/other world computing/i.test(text)||(/pous\d/i.test(text)&&!/startech/i.test(text)))return'OWC_US';
+  if(/plugable/i.test(text)&&/qsi sku/i.test(text))return'PLUGABLE';
+  if(/raidsonic/i.test(text))return'RAIDSONIC';
+  if(/targus/i.test(text)&&/Purchase Order/i.test(text)&&(/Order-No\.\s+REG\//i.test(text)||/Sellog|OSCA/i.test(text)))return'TARGUS_OSCA';
+  if(/targus/i.test(text)&&(/order-no\.d365/i.test(text)||/setlog|osca/i.test(text)))return'TARGUS';
+  if(/trendnet/i.test(text))return'TRENDNET';
+  if(/voxmicro/i.test(text))return'VOXMICRO';
+  if(/teralink/i.test(text)||(/兆網/.test(text)&&/purchase order/i.test(text)))return'TERALINK';
+  if(/廣豫|netpro/i.test(text)&&/purchase order/i.test(text))return'GUANGYU';
+  if(/regulus|銳力科技/i.test(text)||(/Yang-Guang St/i.test(text)&&/產品單價|採購單號/i.test(text)))return'REGULUS';
+  // ── Chinese / Taiwanese ──
+  if(/茂傑/.test(text)&&/生產採購單/.test(text))return'MCT';
+  if(/和暢/.test(text)||(/物料採購單/.test(text)&&/qbic/i.test(text)))return'QBIC';
+  if(/action star|同星科技/i.test(text))return'TONGXING';
+  if(/宏欣达|宏欣達/.test(text))return'HONGXINDA';
+  if(/易捷/.test(text)&&/採購/.test(text))return'YIJIE';
+  if(/萬可/.test(text)||(/廠商SKU/.test(text)&&/物描述/.test(text)))return'WANKE';
+  if(/鴻才/.test(text))return'HONGCAI';
+  if(/台端/.test(text)||/料件識別/.test(text))return'TAITUAN';
+  if(/birch|聯流/i.test(text))return'BIRCH';
+  if(/固德/.test(text))return'GOODE';
+  if(/quanta storage/i.test(text)&&/quotation/i.test(text))return'QSI_QUOT';
+  return'GENERIC';
+}
+
+// ─── Header Parsers ────────────────────────────────────────────────
+function parseHeader(text,fmt){
+  const h={};
+  switch(fmt){
+    case'VERBATIM':
+      h['PO Number']=g(text,/Order\s*Number[:\s#]*([\w]+)/i);
+      h['Date']=g(text,/(\d{2}\.\d{2}\.\d{4})/);
+      h['Buyer']='Verbatim GmbH';
+      h['ZSC']=g(text,/\bZSC\s+([\d]+)/i);
+      h['STO']=g(text,/\bSTO\s+([\d]+)/i);
+      h['BD']=g(text,/\bBD\s+([\d]+(?:\s*[+]\s*[\d]+)*)/i);
+      h['Currency']=g(text,/Price\s+(USD|EUR)/i)||'USD';
+      h['Payment Terms']=g(text,/Payment\s*Terms[:\s\n]+([^\n\r]+)/i);
+      h['Delivery Date']=g(text,/Delivery\s*Date[:\s]*([\d.]+)/i);
+      break;
+    case'SATECHI':
+      h['PO Number']=g(text,/Requisition\s*Number\s*[:\s]*([\w\-\/]+)/i);
+      h['Date']=g(text,/Requisition\s*Date\s*[:\s]*([\d\/]+)/i);
+      h['Buyer']='Satechi';
+      h['Currency']=g(text,/Currency\s*[:\s]*(\w+)/i)||'USD';
+      h['Incoterm']=g(text,/Incoterm\s*[:\s]*(\w+)/i);
+      h['Payment Terms']=g(text,/Payment\s*Terms\s*[:\s]*([^\n\r]+)/i);
+      h['Ex-Factory']=g(text,/Expected\s*Ex.Factory\s*Date\s*[:\s]*([\d\/]+)/i);
+      break;
+    case'ACCO':
+      h['PO Number']=g(text,/Purchase\s*Order\s*Number\s*([\d]+)/i);
+      h['Date']=g(text,/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d+,?\s+\d{4})/i);
+      h['Buyer']='ACCO Brands USA LLC';
+      h['Currency']='USD';
+      h['Payment Terms']=g(text,/Terms of Payment\s*([^\n\r]+)/i);
+      h['Delivery Terms']=g(text,/Terms of Delivery\s*([^\n\r]+)/i);
+      h['Buyers Ref']=g(text,/Buyers\s*Reference\s*([\w]+)/i);
+      h['Total']=g(text,/Total net value\s*\w+\s*([\d,.]+)/i);
+      break;
+    case'ACER':
+      h['PO Number']=g(text,/PO\s*NO\.\s*[:\s]*([\w]+)/i);
+      h['Date']=g(text,/Order\s*Date[:\s]*([\d\/]+)/i);
+      h['Buyer']='Acer Gadget Inc.';
+      h['Currency']=g(text,/Currency[:\s]*(\w+)/i)||'USD';
+      h['Payment Terms']=g(text,/Payment\s*Term[:\s]*(\w+)/i);
+      h['Vendor Code']=g(text,/Vendor\s*Code[:\s]*([\d]+)/i);
+      h['Total']=g(text,/PO\s*Total\s*Amount\s*[:\s]*([\d,\.]+)/i);
+      break;
+    case'ALOGIC':
+      h['PO Number']=g(text,/PO\s*No\.?\s*(PO-[\w\-]+)/i);
+      h['Date']=g(text,/Date\s+([\d\/]+)/i);
+      h['Buyer']='ALOGIC Electronics India';
+      h['Currency']=g(text,/Currency\s+(\w[\w\s]*\w)/i)||'USD';
+      h['Payment Terms']=g(text,/Payment\s*Terms\s+([^\n\r]+)/i);
+      h['Total']=g(text,/Total\s+US\$([\d,\.]+)/i);
+      break;
+    case'CABLEMATTERS':
+      h['PO Number']=g(text,/Ref\.\s*[:\s]*([\w\-\/]+)/i);
+      h['Buyer']='Cable Matters Inc.';
+      h['Currency']='USD';
+      h['Payment Terms']=g(text,/Payment\s*term[:\s]*([^\n\r]+)/i);
+      h['Total']=g(text,/Total\s+([\d,\.]+)\s*\n/i);
+      break;
+    case'CHD':
+      h['PO Number']=g(text,/Order\s*No\.\s*([\w\-]+)/i);
+      h['Date']=g(text,/(\d+\.\s*\w+\s+\d{4})/);
+      h['Buyer']='CHD Asia Pte. Ltd.';
+      h['Currency']='USD';
+      h['Payment Terms']=g(text,/Payment\s*Terms\s+([^\n\r]+)/i);
+      h['Total']=g(text,/Total\s+USD\s+([\d,\.]+)/i);
+      break;
+    case'OWC_EU':
+      h['PO Number']=g(text,/Number\s+(POBE[\w\-]+)/i);
+      h['Date']=g(text,/Date\s+([\d\/]+)/i);
+      h['Buyer']='OWC Europe, BV';
+      h['Currency']='USD';
+      h['Delivery Terms']=g(text,/Delivery\s*terms\s+(\w+)/i);
+      if(!h['Total'])h['Total']=g(text,/Total\s+([\d,\.]+)/i);
+      break;
+    case'OWC_US':
+      h['PO Number']=g(text,/Number\s+(POUS[\w\-]+)/i)||g(text,/Purchase order\s+(POUS[\w\-]+)/i);
+      h['Date']=g(text,/Date\s+([\d\/]+)/i);
+      h['Buyer']='Other World Computing (OWC)';
+      h['Currency']='USD';
+      h['Delivery Terms']=g(text,/Delivery\s*terms\s+(\w+)/i);
+      h['Total']=g(text,/USD\s+([\d,\.]+)\s+0\.00/i);
+      break;
+    case'PLUGABLE':
+      h['PO Number']=g(text,/P\.O\.\s*#\s*(\d+)/i);
+      h['Date']=g(text,/Date\s+([\d\/]+)/i);
+      h['Buyer']='Plugable (LeanCode Inc)';
+      h['Currency']='USD';
+      h['Payment Terms']=g(text,/Payment\s*Terms\s+(NET\s+\d+)/i);
+      h['Delivery Terms']=g(text,/Shipping\s*Terms\s+(\w+)/i);
+      h['Total']=g(text,/TOTAL\s*\(USD\)\s+\$?([\d,\.]+)/i);
+      break;
+    case'RAIDSONIC':
+      h['PO Number']=g(text,/Number\s+([\d]+)/i);
+      h['Date']=g(text,/Date\s+([\d.]+)/i);
+      h['Buyer']='RaidSonic Technology GmbH';
+      h['Lieferanten-Nr']=g(text,/Lieferanten-Nr\.\s+([\d]+)/i);
+      h['Currency']='EUR';
+      break;
+    case'TARGUS_OSCA':
+      h['PO Number']=g(text,/Order-No\.\s+(REG\/[\w\/]+)/i)||g(text,/Order-No\.\s+([\w\/\-]+)/i);
+      h['D365']=g(text,/Order-No\.\s*D365\s+([\w\-]+)/i);
+      h['Date']=g(text,/Order\s+Date\s+([\d./]+\s+[\d:]+)/i)||g(text,/Order\s+Date\s+([\d./]+)/i);
+      h['Issue Date']=g(text,/Issue\s+Date\s+([\d\/\.]+)/i);
+      h['ETD']=g(text,/ETD\s+([\d\/\-]+)/i);
+      h['Buyer']='Targus';
+      h['Companies']=g(text,/Companies\s+([^\n\r]+)/i);
+      h['Currency']=g(text,/\b(USD|EUR|GBP|AUD)\b/)||'USD';
+      h['Payment Terms']=g(text,/Payment\s+Terms\s+([\w\d]+)/i);
+      h['Ship Terms']=g(text,/Ship\.\s*Terms\s+(\S+)/i)||g(text,/Ship\s+Terms\s+(\S+)/i);
+      break;
+    case'TARGUS':
+      h['PO Number']=g(text,/Order-No\.D365\s+([\w\-]+)/i)||g(text,/Order\s*No\.?\s*[:\s]*([\w\-]+)/i);
+      h['Date']=g(text,/(?:Order\s*)?Date[:\s]*([\d\/\-\.]+)/i);
+      h['Buyer']='Targus';
+      h['Currency']=g(text,/\b(USD|EUR|GBP|AUD)\b/)||'USD';
+      h['ETD']=g(text,/ETD[:\s]*([\d\/\-]+)/i);
+      break;
+    case'TRENDNET':
+      h['PO Number']=g(text,/(?:P\.O\.|Purchase\s*Order)\s*(?:No\.?|Number|#)?\s*[:\s]*([\w\-\/]+)/i);
+      h['Date']=g(text,/(?:Order\s*)?Date[:\s]*([\d\/\-\.]+)/i);
+      h['Buyer']='TRENDnet';
+      h['Currency']=g(text,/\b(USD|EUR|GBP)\b/)||'USD';
+      h['Payment Terms']=g(text,/Payment\s*Terms?[:\s]*([^\n\r]+)/i);
+      h['Total']=g(text,/(?:Grand\s*)?Total\s*[:\s]*([\d,\.]+)/i);
+      break;
+    case'VOXMICRO':
+      h['PO Number']=g(text,/Purchase Order #([\w\-]+)/i)||g(text,/\bPOH\d{2}-\d{4}-\d{2}\b/);
+      h['Date']=g(text,/ISSUED[:\s]*([\d\-\/]+)/i)||g(text,/Date[:\s]*([\d\/\-\.]+)/i);
+      h['Buyer']='Voxmicro Technologies';
+      h['Currency']=g(text,/Currency[:\s]*(USD|CAD|EUR)/i)||g(text,/\b(USD|CAD|EUR)\b/)||'USD';
+      h['Delivery Terms']=g(text,/Delivery[:\s]*([^\n\r,]+)/i);
+      h['Total']=g(text,/Total in \w+\s+\$?\s*([\d,\.]+)/i);
+      break;
+    case'TERALINK':
+      h['PO Number']=g(text,/Ref[:\s]*([\w\/\-]+)/i)||g(text,/採購單號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/Date[:\s]*([\d\/\-\.]+)/i)||g(text,/採購日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='兆網有限公司';
+      h['Currency']=g(text,/Unit[:\s]*(新台幣)/i)?'NTD':(g(text,/\b(USD|EUR|NTD|TWD)\b/)||'NTD');
+      h['Payment Terms']=g(text,/PAYMENT[:\s]*([^\n\r]+)/i);
+      h['Total']=g(text,/Total[:\s]*([\d,\.]+)/i);
+      break;
+    case'GUANGYU':
+      h['PO Number']=g(text,/\b(NPO[\d\-]+)\b/)||g(text,/採購單號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/DATE[：:]\s*([\d\/]+)/i)||g(text,/日期[：:]\s*([\d\/]+)/i);
+      h['Buyer']='廣豫科技股份有限公司';
+      h['Currency']=g(text,/Unit[：:]\s*NT\$/i)?'NTD':(g(text,/\b(USD|EUR)\b/)||'NTD');
+      h['Payment Terms']=g(text,/Payment[:\s]*([^\n\r]+)/i);
+      h['Total']=g(text,/合計新台幣\(含稅\)[：:\s]*([\d,]+)/)||g(text,/\b([\d,]+)\s*$$/m);
+      break;
+    case'REGULUS':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w\-]+)/)||g(text,/\bPO\d{8,}\b/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/)||g(text,/列印日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='銳力科技股份有限公司';
+      h['Currency']=g(text,/幣[\s　]*別[：:\s]*(\w+)/)||g(text,/\b(USD|NTD|TWD)\b/)||'USD';
+      h['Vendor']=g(text,/廠商名稱[：:\s]*([^\n\r採]+)/);
+      h['Total']=g(text,/總計[：:\s]*([\d,\.]+)/);
+      break;
+    case'MCT':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w]+)/);
+      h['Date']=g(text,/單據日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='茂傑國際股份有限公司';
+      h['Currency']=g(text,/交易幣別[：:\s]*(\w+)/)||'USD';
+      h['Exchange Rate']=g(text,/匯率[：:\s]*([\d.]+)/);
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      h['Total']=g(text,/金額合計[：:\s]*([\d,]+)/);
+      break;
+    case'STARTECH':
+      h['PO Number']=g(text,/ORDER\s+NO\.\s+([\w\-]+)/i);
+      h['Date']=g(text,/\bDATE\s+(\d{4}-\d{2}-\d{2})/i);
+      h['Buyer']=/StarTech\.com\s+USA/i.test(text)?'StarTech.com USA LLP':'StarTech.com Limited';
+      h['Delivery Terms']=g(text,/DELIVERY\s+TERMS\s+(\S+)/i);
+      h['Confirmed Dock Date']=g(text,/CONFIRMED\s+DOCK\s+DATE\s+(\d{4}-\d{2}-\d{2})/i);
+      h['Payment Terms']=g(text,/PAYMENT\s+TERMS\s+(\S+)/i);
+      h['Currency']=g(text,/\b(USD|EUR|GBP)\b/)||'USD';
+      h['Total']=g(text,/(?:USD|EUR|GBP)\s+[\d,]+\.?\d*\s+[\d,\.]+\s+[\d,\.]+\s+[\d,\.]+\s+([\d,]+\.?\d*)/i);
+      break;
+    case'QBIC':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w]+)/);
+      h['Date']=g(text,/單據日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='和暢科技股份有限公司';
+      h['Currency']=g(text,/交易幣別[：:\s]*(\w+)/)||'USD';
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      h['Total']=g(text,/金額合計[：:\s]*([\d,]+)/);
+      break;
+    case'TONGXING':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='同星科技股份有限公司';
+      h['Currency']=g(text,/幣別[：:\s]*(\w+)/)||'USD';
+      h['Exchange Rate']=g(text,/匯率[：:\s]*([\d.]+)/);
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      h['Total']=g(text,/含稅總金額[：:\s]*([\d,\.]+)/);
+      break;
+    case'HONGXINDA':
+      h['PO Number']=g(text,/采购单号[：:\s]*([\w\-]+)/)||g(text,/採購單號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/下单日期[：:\s]*([\d\-]+)/)||g(text,/下單日期[：:\s]*([\d\-]+)/);
+      h['Buyer']='东莞市宏欣达电子科技有限公司';
+      h['Currency']=g(text,/交易币种[：:\s]*(\w+)/)||'USD';
+      h['Payment']=g(text,/付款方式[：:\s]*([^\n\r]+)/)||g(text,/付款协议[：:\s]*([^\n\r]+)/);
+      h['Total']=g(text,/含稅金額[：:\s]*([\d,\.]+)/)||g(text,/含税金额[：:\s]*([\d,\.]+)/);
+      break;
+    case'YIJIE':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w\-]+)/)||g(text,/訂單編號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/)||g(text,/下單日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='易捷';
+      h['Currency']=g(text,/幣別[：:\s]*(\w+)/)||g(text,/Currency[:\s]*(\w+)/i)||'USD';
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      break;
+    case'WANKE':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w\-]+)/)||g(text,/订单编号[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/)||g(text,/下单日期[：:\s]*([\d\/\-]+)/);
+      h['Buyer']='萬可';
+      h['Currency']=g(text,/幣別[：:\s]*(\w+)/)||g(text,/单价(USD|EUR)/i)||'USD';
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      break;
+    case'HONGCAI':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w\-]+)/)||g(text,/訂單編號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/)||g(text,/日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='鴻才科技';
+      h['Currency']=g(text,/幣別[：:\s]*(\w+)/)||'USD';
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      break;
+    case'TAITUAN':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w\-]+)/)||g(text,/訂單編號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/)||g(text,/日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='台端';
+      h['Currency']=g(text,/幣別[：:\s]*(\w+)/)||'USD';
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      break;
+    case'BIRCH':
+      // In merged text, labels can appear AFTER their values on same line
+      h['PO Number']=g(text,/\b(\d{8,10})\b(?=[^\n]*採購單號)/m)||g(text,/採購單號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/)||g(text,/(\d{2,3}\/\d{2}\/\d{2})(?=[^\n]*採購日期)/m);
+      h['Buyer']='聯流科技股份有限公司';
+      h['Currency']=g(text,/(USD|NTD|TWD)(?=[^\n]*交易幣別)/m)||g(text,/交易幣別[：:\s]*([A-Z]+)/)||'USD';
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      h['Total']=g(text,/採購總額[：:\s]*([\d,\.]+)/)||g(text,/([\d,]+\.?\d*)(?=[^\n]*採購總額)/m);
+      break;
+    case'GOODE':
+      h['PO Number']=g(text,/採購單號[：:\s]*([\w\-]+)/)||g(text,/訂單編號[：:\s]*([\w\-]+)/);
+      h['Date']=g(text,/採購日期[：:\s]*([\d\/]+)/)||g(text,/日期[：:\s]*([\d\/]+)/);
+      h['Buyer']='固德';
+      h['Currency']=g(text,/幣別[：:\s]*(\w+)/)||'USD';
+      h['Payment Terms']=g(text,/付款條件[：:\s]*([^\n採]+)/);
+      h['Total']=g(text,/合計[：:\s]*([\d,\.]+)/);
+      break;
+    case'QSI_QUOT':
+      h['PO Number']=g(text,/Quotation\s*#?\s*[:\s]*([\w\-]+)/i);
+      h['Date']=g(text,/Date[:\s]+([\d\s\/]+)/i);
+      h['Buyer']=g(text,/To[:\s]+([^\n\r]+)/i);
+      h['Currency']='NTD';
+      h['Total']=g(text,/NT\$([\d,\.]+)/i);
+      break;
+    default:
+      h['PO Number']=g(text,/(?:PO|order|purchase order)\s*(?:no\.?|number|#)[:\s]*([\w\-\/]+)/i);
+      h['Date']=g(text,/(?:order\s*)?date[:\s]*([\d\/.\-]+)/i);
+      h['Currency']=g(text,/\b(USD|EUR|NTD|GBP|AUD|INR|CNY)\b/);
+      break;
+  }
+  return h;
+}
+
+// ─── Item Parsers ──────────────────────────────────────────────────
+function parseItems(text,fmt){
+  const items=[];
+  const lines=text.split(/\r?\n/);
+
+  // ── VERBATIM ──────────────────────────────────────────────────────
+  if(fmt==='VERBATIM'){
+    const prefRe=/^\s*(\d{1,4})\s+([\d]{4,6}-[\d]{2,3})\s+EAN-No\.?\s*(\d{8,14})(.*)/i;
+    const noEanRe=/^\s*(\d{1,4})\s+([\d]{4,6}-[\d]{2,3})\s+([\d.,]+)\s+(PC|PCS|EA|BOX)/i;
+    for(let i=0;i<lines.length;i++){
+      const pm=prefRe.exec(lines[i]);
+      const nm=!pm&&noEanRe.exec(lines[i]);
+      if(!pm&&!nm)continue;
+      let item_no,customer_pn,ean='',tail;
+      if(pm){[,item_no,customer_pn,ean,tail]=pm;}
+      else{[,item_no,customer_pn]=nm;tail=lines[i].slice(nm[0].length);}
+      const toks=(tail||'').trim().split(/\s+/).filter(Boolean);
+      const nums=[],units=[];
+      for(const tk of toks){if(/^[\d.,]+$/.test(tk))nums.push(nn(tk));else if(/^[A-Z]{1,5}$/.test(tk))units.push(tk);}
+      let volume='',unit='PC',pack_size='',unit_price='',value='';
+      if(nums.length>=4)[volume,pack_size,unit_price,value]=nums;
+      else if(nums.length===3)[volume,pack_size,value]=nums;
+      else if(nums.length===2)[volume,pack_size]=nums;
+      else if(nums.length===1)volume=nums[0];
+      unit=units[0]||'PC';
+      let confirm='',description='';
+      for(let j=i+1;j<=i+3&&j<lines.length;j++){
+        const nx=lines[j].trim();if(!nx)continue;
+        const dm=/^([A-Z])\s+(.+)$/.exec(nx);
+        if(dm){confirm=dm[1];description=dm[2].trim();}else if(!/^\d/.test(nx))description=nx;
+        break;
+      }
+      items.push({line_no:item_no,vendor_pn:customer_pn,customer_pn:ean,description,qty:volume,unit,unit_price,amount:value,delivery_date:'',confirm});
+    }
+    return items;
+  }
+
+  // ── SATECHI ───────────────────────────────────────────────────────
+  if(fmt==='SATECHI'){
+    // PDF-aware parser: pdf.js groups description text with vendor PN on same line
+    // e.g. "Thunderbolt 5 CubeDock...  9T8TES112T262R  ST-DT5CES-EU  120  1,500  $ 138.87  $ 208,305.00  Enclosure..."
+    const pdfItems=[];
+    for(let i=0;i<lines.length;i++){
+      const line=lines[i];
+      const vnCpnM=line.match(/\b(0|[A-Z0-9]{8,})\s+(ST-[\w\-]+)/);
+      if(!vnCpnM)continue;
+      if(/vendor item|satechi item/i.test(line))continue;
+      const vendor_pn=vnCpnM[1];
+      const customer_pn=vnCpnM[2];
+      // Prices: $ unitprice  $ amount (with any number of spaces)
+      const dolM=line.match(/\$\s+([\d,]+\.?\d*)\s+\$\s+([\d,]+\.?\d*)/);
+      const unit_price=dolM?dolM[1].replace(/,/g,''):'';
+      const amount=dolM?dolM[2].replace(/,/g,''):'';
+      // Qty: lead time (2-3 digit) followed by qty, then $
+      const qtyM=line.match(/\b\d{2,3}\s+([\d,]{3,})\s+\$/);
+      const qty=qtyM?qtyM[1].replace(/,/g,''):'';
+      // Description: text before the vendor PN match + text after last $ amount
+      const matchStart=line.indexOf(vnCpnM[0]);
+      const beforeMatch=matchStart>0?line.slice(0,matchStart).trim():'';
+      const afterAmount=dolM?line.slice(line.indexOf(dolM[0])+dolM[0].length).trim():'';
+      // Check next line for description continuation (e.g. "Station - US")
+      let descExtra='';
+      if(i+1<lines.length){
+        const nl=lines[i+1].trim();
+        if(nl&&/^[A-Za-z]/.test(nl)&&!/ST-|Issued|Jessica|Please|Contact|Total|\$\s*\d/.test(nl))descExtra=nl;
+      }
+      const desc=((beforeMatch+' '+afterAmount+' '+descExtra).trim()).replace(/\s+/g,' ');
+      pdfItems.push({line_no:String(pdfItems.length+1),vendor_pn,customer_pn,description:desc,qty,unit:'EA',unit_price,amount,delivery_date:''});
+    }
+    if(pdfItems.length)return pdfItems;
+    // Fallback: clean text / embedded sample format
+    const re=/^([\dA-Z0-9][\w]*|0)\s+(ST-[\w\-]+)\s+(.+?)\s+(\d{2,3})\s+([\d,]+)\s+\$\s*([\d.]+)\s+\$\s*([\d,]+\.?\d*)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      if(/total|confirm|please/i.test(m[3]))continue;
+      items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[2],description:m[3].trim(),qty:m[5].replace(/,/g,''),unit:'EA',unit_price:m[6],amount:m[7].replace(/,/g,''),delivery_date:''});
+    }
+    return items;
+  }
+
+  // ── ACCO ──────────────────────────────────────────────────────────
+  if(fmt==='ACCO'){
+    const re=/^\s*(\d+)\s+([\d.,]+)\s+EA\s+(\w+)\s+([\d.,]+)\s+([\d.,]+)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      const pos=m.index+m[0].length;
+      const after=text.slice(pos,pos+300);
+      const descMatch=after.match(/^\s*\n\s*([^\n]+)/);
+      const desc=descMatch?descMatch[1].trim():'';
+      const etd=after.match(/ETD\s+([\d\-A-Za-z]+)\s+ETA\s+([\d\-A-Za-z]+)/i);
+      items.push({line_no:m[1],vendor_pn:m[3],customer_pn:m[3],description:desc.replace(/^F,/,'').replace(/USD\/\d+ EA/,'').trim(),qty:m[2].replace(/\./g,''),unit:'EA',unit_price:nn(m[4]),amount:nn(m[5]),delivery_date:etd?etd[2]:''});
+    }
+    return items;
+  }
+
+  // ── ACER ──────────────────────────────────────────────────────────
+  if(fmt==='ACER'){
+    const descRe=/Item\s+Description\s+(.+?)(?=\n\n|\nLine\b|$)/gi;
+    const subRe=/Sub-Total\s+AMT\s+([\d,]+)/gi;
+    let m,descs=[],subs=[];
+    while((m=descRe.exec(text))!==null)descs.push(m[1].replace(/\s+/g,' ').trim());
+    while((m=subRe.exec(text))!==null)subs.push(m[1]);
+    let idx=0;
+    const lineRe=/Item\s+Number\s+([\w.]+)\s+Order\s+QTY\s+(\d+)\s+Unit\s+Price\s+([\d.]+)/gi;
+    while((m=lineRe.exec(text))!==null){
+      items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[1],description:descs[idx]||'',qty:m[2],unit:'EA',unit_price:m[3],amount:subs[idx]||'',delivery_date:''});
+      idx++;
+    }
+    return items;
+  }
+
+  // ── ALOGIC ────────────────────────────────────────────────────────
+  if(fmt==='ALOGIC'){
+    const re=/^([\w\-]+)\s+([\w\-]+)\s+(.+?)\s+(\d+)\s+([\d.]+)\s+([\d,]+\.\d+)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      if(/tax|gstin|summary/i.test(m[3]))continue;
+      items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[2],description:m[3].trim(),qty:m[4],unit:'EA',unit_price:m[5],amount:m[6],delivery_date:''});
+    }
+    return items;
+  }
+
+  // ── CABLEMATTERS ─────────────────────────────────────────────────
+  if(fmt==='CABLEMATTERS'){
+    const re=/^([\w\-]+)\s+-\s+(.+?)\s+([\d.]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d,]+\.\d+)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[1],description:m[2].trim(),qty:m[6],unit:'PC',unit_price:m[3],amount:m[7],delivery_date:''});
+    }
+    return items;
+  }
+
+  // ── CHD ───────────────────────────────────────────────────────────
+  if(fmt==='CHD'){
+    const re=/^([A-Z][A-Z0-9 ]{2,}?)\s+(\d+)\s+(PCS|EA|PC)\s+([\d.]+)\s+([\d,]+\.\d+)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      items.push({line_no:String(items.length+1),vendor_pn:m[1].trim(),customer_pn:m[1].trim(),description:m[1].trim(),qty:m[2],unit:m[3],unit_price:m[4],amount:m[5],delivery_date:''});
+    }
+    return items;
+  }
+
+  // ── OWC_EU / OWC_US ──────────────────────────────────────────────
+  if(fmt==='OWC_EU'||fmt==='OWC_US'){
+    const re=/^(\d+)\s+(OWC[\w]+)\s+(.+?)\s+([\d\/]+)\s+([\d,.]+)\s+ea\s+([\d.]+).*?([\d,]+\.\d+)\s*$/gim;
+    let m;
+    while((m=re.exec(text))!==null){
+      items.push({line_no:m[1],vendor_pn:m[2],customer_pn:m[2],description:m[3].replace(/\s+/g,' ').trim(),qty:m[5].replace(/,/g,''),unit:'ea',unit_price:m[6],amount:m[7],delivery_date:m[4]});
+    }
+    return items;
+  }
+
+  // ── PLUGABLE ──────────────────────────────────────────────────────
+  if(fmt==='PLUGABLE'){
+    const re=/^([\w]+)\s+([\w\-]+)\s+\w+\s+(\d+)\s+\$?([\d.]+)\s+\$?([\d,]+\.?\d*)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      const descM=text.match(/Description\s*\n([^\n]+)/i);
+      items.push({line_no:'1',vendor_pn:m[1],customer_pn:m[2],description:descM?descM[1].trim():'',qty:m[3],unit:'EA',unit_price:m[4],amount:m[5].replace(/,/g,''),delivery_date:''});
+    }
+    return items;
+  }
+
+  // ── RAIDSONIC ─────────────────────────────────────────────────────
+  if(fmt==='RAIDSONIC'){
+    const re=/^(\d+)\s+(\d+)\s+([\w\-]+)\s+(\d+)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      items.push({line_no:m[1],vendor_pn:m[3],customer_pn:m[2],description:m[3],qty:m[4],unit:'PC',unit_price:'',amount:'',delivery_date:''});
+    }
+    return items;
+  }
+
+  // ── TARGUS_OSCA (Sellog OSCA system — OCR-based) ─────────────────
+  if(fmt==='TARGUS_OSCA'){
+    // OCR line example: "10 112 DOCK230USZ-50 Thunderbolt 5 Triple Video Doc 707324 10 ... 905 179.66 162,771.96 0.00 USD 502 Anaheim 35"
+    // Key: find Targus item code, then extract last 4 nums before currency for qty/price/total/vat
+    const CODE_RE=/\b([A-Z]{2,4}\d{2,4}[A-Z]{2,4}-\d{2,3}[A-Z]?\d?)\b/;
+    for(const line of lines){
+      const cm=CODE_RE.exec(line);
+      if(!cm)continue;
+      if(/Item|Desc|Order|Baan|Currency/i.test(line.slice(0,40)))continue;
+      const pn=cm[1];
+      // Position number at start
+      const posM=line.match(/^(\d{1,3})\s/);
+      const pos=posM?posM[1]:String(items.length+1);
+      // Description: between item code and a 5+ digit Baan order number (or end of text section)
+      const afterCode=line.slice(line.indexOf(pn)+pn.length).trim();
+      // Skip optional Style column (short word like AS01)
+      const descM=afterCode.match(/^(?:[A-Z]{1,2}\d{2,4}\s+)?([A-Za-z].+?)\s+(?:\d{5,}|\d+\s+\d+\s+\d+)/);
+      const desc=descM?descM[1].trim():afterCode.split(/\s{2,}/)[0]||'';
+      // Find currency and extract nums before it
+      const currM=line.match(/\b(USD|EUR|GBP|AUD)\b/);
+      const segment=currM?line.slice(0,line.indexOf(currM[1])):line;
+      const allNums=(segment.match(/[\d,]+\.?\d*/g)||[]).map(n=>parseFloat(n.replace(/,/g,'')));
+      // Last 4 values: [Qty, Price/Item, Price Total, VAT(0)]
+      const tail=allNums.slice(-4);
+      let qty='',unitPrice='',amount='';
+      if(tail.length>=3){qty=String(tail[0]);unitPrice=String(tail[1]);amount=String(tail[2]);}
+      else if(tail.length===2){unitPrice=String(tail[0]);amount=String(tail[1]);}
+      // ETD date if present
+      const etdM=line.match(/\b(\d{4}[\/\-]\d{2}[\/\-]\d{2})\b/);
+      if(pn&&(qty||amount))
+        items.push({line_no:pos,vendor_pn:pn,customer_pn:pn,description:desc,qty,unit:'PC',unit_price:unitPrice,amount,delivery_date:etdM?etdM[1].replace(/-/g,'/'):''});
+    }
+    return items;
+  }
+
+  // ── TARGUS ────────────────────────────────────────────────────────
+  if(fmt==='TARGUS'){
+    // Columns: OrderNo | Pos | Company | Item | Style | Desc | MCQty | Qty | Price | Total | Currency | WH | ETD
+    // Try to find lines with item number + numeric columns
+    const re=/^([\w\-]+)\s+(\d+)\s+\S+\s+([\w\-]+)\s+([\w\-]*)\s+(.+?)\s+\d+\s+(\d+)\s+([\d.]+)\s+([\d,]+\.?\d*)\s+(USD|EUR|GBP)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      const etdM=text.slice(m.index,m.index+500).match(/(\d{4}[\/\-]\d{2}[\/\-]\d{2}|\d{2}[\/\-]\d{2}[\/\-]\d{4})/);
+      items.push({line_no:m[2],vendor_pn:m[3],customer_pn:m[3],description:m[5].trim(),qty:m[6],unit:'PC',unit_price:m[7],amount:m[8],delivery_date:etdM?etdM[1]:''});
+    }
+    // Fallback: simpler pattern
+    if(!items.length){
+      const re2=/^\d+\s+([\w\-]+)\s+(.+?)\s+([\d,]+)\s+([\d.]+)\s+([\d,]+\.?\d*)/gm;
+      while((m=re2.exec(text))!==null){
+        if(/total|subtotal|tax/i.test(m[2]))continue;
+        items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[1],description:m[2].trim(),qty:m[3].replace(/,/g,''),unit:'PC',unit_price:m[4],amount:m[5],delivery_date:''});
+      }
+    }
+    return items;
+  }
+
+  // ── TRENDNET ──────────────────────────────────────────────────────
+  if(fmt==='TRENDNET'){
+    // Item No. | Description | Unit | Qty | Unit Price | Total Price
+    const re=/^([\w\-]+)\s+(.+?)\s+(PCS|EA|PC|Unit)\s+([\d,]+)\s+([\d.]+)\s+([\d,]+\.?\d*)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      if(/total|subtotal|item\s*no/i.test(m[1]+m[2]))continue;
+      items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[1],description:m[2].trim(),qty:m[4].replace(/,/g,''),unit:m[3],unit_price:m[5],amount:m[6],delivery_date:''});
+    }
+    // Fallback: line# + item# + desc + qty + price + total
+    if(!items.length){
+      const re2=/^(\d+)\s+([\w\-]+)\s+(.+?)\s+([\d,]+)\s+([\d.]+)\s+([\d,]+\.?\d*)/gm;
+      while((m=re2.exec(text))!==null){
+        if(/total|subtotal/i.test(m[3]))continue;
+        items.push({line_no:m[1],vendor_pn:m[2],customer_pn:m[2],description:m[3].trim(),qty:m[4].replace(/,/g,''),unit:'PC',unit_price:m[5],amount:m[6],delivery_date:''});
+      }
+    }
+    return items;
+  }
+
+  // ── VOXMICRO ──────────────────────────────────────────────────────
+  if(fmt==='VOXMICRO'){
+    // Item line: "lineNo [CODE] desc...  VendorRef  HSCode  COO  date  qty Units  price  $ amount"
+    // All columns at same y → merged with 2-space separators
+    let m;
+    const re=/^(\d+)\s+\[([\w\-]+)\]\s+(.+?)\s{2,}(\d{4}-\d{2}-\d{2})\s{2,}([\d,]+)\s+Units?\s+([\d.]+)\s{2,}\$\s*([\d,]+\.?\d*)/gm;
+    while((m=re.exec(text))!==null){
+      items.push({line_no:m[1],vendor_pn:m[2],customer_pn:m[2],description:m[3].trim(),
+                 qty:m[5].replace(/,/g,''),unit:'Units',unit_price:m[6],
+                 amount:m[7].replace(/,/g,''),delivery_date:m[4].replace(/-/g,'/')});
+    }
+    if(!items.length){
+      // Fallback: find [CODE] and grab numbers from same line
+      const re2=/^(\d+)\s+\[([\w\-]+)\]\s+(.+)/gm;
+      while((m=re2.exec(text))!==null){
+        const rest=m[3];
+        const dateM=rest.match(/(\d{4}-\d{2}-\d{2})/);
+        const numM=rest.match(/([\d,]+)\s+Units?\s+([\d.]+)\s+\$\s*([\d,]+\.?\d*)/i);
+        items.push({line_no:m[1],vendor_pn:m[2],customer_pn:m[2],
+                   description:rest.split(/\s{2,}/)[0].trim(),
+                   qty:numM?numM[1].replace(/,/g,''):'',unit:'Units',
+                   unit_price:numM?numM[2]:'',amount:numM?numM[3].replace(/,/g,''):'',
+                   delivery_date:dateM?dateM[1].replace(/-/g,'/'):''});
+      }
+    }
+    return items;
+  }
+
+  // ── TERALINK ──────────────────────────────────────────────────────
+  // Product code is on its own line (e.g. iW3240H); data row with qty/price at different y
+  if(fmt==='TERALINK'){
+    for(let i=0;i<lines.length;i++){
+      const lnt=lines[i].trim();
+      // Product code: alphanumeric, contains at least one digit (not pure word/pure number), standalone
+      if(lnt.length>=4&&lnt.length<=30&&/\d/.test(lnt)&&/^[A-Za-z][A-Za-z0-9\-]*$/.test(lnt)&&
+         !/^(Item|Description|Qty|Unit|Price|Total|PURCHASE|PAYMENT|Warranty|Delivery|Tel|Fax|Date|ATTN|Taiwan)$/i.test(lnt)){
+        const pn=lnt;
+        let desc='';
+        for(let j=i+1;j<Math.min(i+30,lines.length);j++){
+          const dl=lines[j].trim();
+          if(!dl)continue;
+          // Data row: starts with item# then qty (both small integers), then unit, price, extension
+          const dm=/^(\d{1,3})\s{2,}(\d+)\s{2,}(\S+)\s{2,}([\d,]+\.?\d*)\s{2,}([\d,]+\.?\d*)/.exec(dl)||
+                   /^(\d{1,3})\s+(\d+)\s+(\S+)\s+([\d,]+)\s+([\d,]+\.?\d*)$/.exec(dl);
+          if(dm&&parseInt(dm[1])>0&&parseInt(dm[2])>0){
+            items.push({line_no:dm[1],vendor_pn:pn,customer_pn:pn,description:desc.trim(),
+                       qty:dm[2],unit:dm[3],unit_price:dm[4].replace(/,/g,''),
+                       amount:dm[5].replace(/,/g,''),delivery_date:''});
+            break;
+          }
+          if(/小計|合計|Total|稅金|PURCHASE/i.test(dl))break;
+          // Accumulate description
+          if(!/^\d+$/.test(dl)&&!/^\$/.test(dl))desc+=(desc?' ':'')+dl;
+        }
+      }
+    }
+    if(!items.length){
+      // Fallback: look for data rows directly and grab product code from nearby earlier line
+      let lastPn='';
+      for(let i=0;i<lines.length;i++){
+        const lnt=lines[i].trim();
+        if(lnt.length>=4&&lnt.length<=30&&/\d/.test(lnt)&&/^[A-Za-z][A-Za-z0-9\-]*$/.test(lnt))lastPn=lnt;
+        const dm=/^(\d{1,3})\s+(\d+)\s+(\S+)\s+([\d,]+)\s+([\d,]+\.?\d*)$/.exec(lnt);
+        if(dm&&lastPn&&parseInt(dm[1])>0){
+          items.push({line_no:dm[1],vendor_pn:lastPn,customer_pn:lastPn,description:'',
+                     qty:dm[2],unit:dm[3],unit_price:dm[4].replace(/,/g,''),
+                     amount:dm[5].replace(/,/g,''),delivery_date:''});
+        }
+      }
+    }
+    return items;
+  }
+
+  // ── GUANGYU ───────────────────────────────────────────────────────
+  if(fmt==='GUANGYU'){
+    // Product code on standalone line (e.g. IES-2210FT-8R2S)
+    // Data row: "1.  unitPrice  qty  extension" (separate y from product code)
+    let pn='', descParts=[];
+    for(let i=0;i<lines.length;i++){
+      const lnt=lines[i].trim();
+      if(!lnt)continue;
+      // Product code: all-caps + digits + dashes, standalone
+      if(/^[A-Z]{2,6}-[\w\-]+$/.test(lnt)&&lnt.length<=30){
+        pn=lnt; descParts=[]; continue;
+      }
+      // Description continuation lines (after code, before data row)
+      if(pn&&/^[A-Za-z0-9\-\+\/\s,\*\(\)\.]+$/.test(lnt)&&!/^[\d,]+$/.test(lnt)&&!/^\d+\./.test(lnt)){
+        descParts.push(lnt); continue;
+      }
+      // Data row: "1.  8,600  10  86,000"
+      const rowM=/^(\d+)\.\s+([\d,]+)\s+([\d,]+)\s+([\d,]+\.?\d*)$/.exec(lnt);
+      if(rowM&&pn){
+        items.push({line_no:rowM[1],vendor_pn:pn,customer_pn:pn,
+                   description:descParts.join(' '),qty:rowM[3].replace(/,/g,''),
+                   unit:'PCS',unit_price:rowM[2].replace(/,/g,''),
+                   amount:rowM[4].replace(/,/g,''),delivery_date:''});
+        pn=''; descParts=[];
+      }
+    }
+    return items;
+  }
+
+  // ── REGULUS ───────────────────────────────────────────────────────
+  if(fmt==='REGULUS'){
+    // 產品編號  品名規格  qty pcs  單價  金額 交貨日 (all on one merged line)
+    // e.g.: "DL-6950  DL-6950 Displaylink ,IC  5,040 pcs  15.500000  78,120.00 2026/05/15"
+    let m;
+    const re=/^([\w\-]+)\s{2,}(.+?)\s{2,}([\d,]+)\s+\w+\s{2,}([\d.]+)\s{2,}([\d,]+\.?\d*)\s+(\d{4}\/\d{2}\/\d{2})/gm;
+    while((m=re.exec(text))!==null){
+      if(/採購|品名|合計|數量/i.test(m[1]+m[2]))continue;
+      items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[1],
+                 description:m[2].trim(),qty:m[3].replace(/,/g,''),unit:'pcs',
+                 unit_price:m[4],amount:m[5].replace(/,/g,''),delivery_date:m[6]});
+    }
+    if(!items.length){
+      // Fallback without date
+      const re2=/^([\w\-]+)\s{2,}(.+?)\s{2,}([\d,]+)\s+\w+\s{2,}([\d.]+)\s{2,}([\d,]+\.?\d*)/gm;
+      while((m=re2.exec(text))!==null){
+        if(/採購|品名|合計|數量/i.test(m[1]+m[2]))continue;
+        items.push({line_no:String(items.length+1),vendor_pn:m[1],customer_pn:m[1],
+                   description:m[2].trim(),qty:m[3].replace(/,/g,''),unit:'pcs',
+                   unit_price:m[4],amount:m[5].replace(/,/g,''),delivery_date:''});
+      }
+    }
+    return items;
+  }
+
+  // ── QBIC (PDF column-aware parser) ───────────────────────────────
+  // In actual PDF extraction, each item row starts with item code (KMTD.../STD...)
+  // and pdf.js y-grouping (4px tolerance) merges column data onto same "line":
+  // Line1: "KMTD08IO01801  2025/03/28  200  Q102  TDD-1000, Pan"
+  // Line2: "PCBA_TDD-1000...Docking  Q311  0 PCS  0001  Board  N  75.5  20241206002"
+  // Line3: "PCS  8L,198*92.3mm,T=1.6mm  未結案"
+  // Line4: "15,100  0001"
+  if(fmt==='QBIC'){
+    const ITEM_RE=/^(KMTD\w+|STD\w+)/;
+    const pdfItems=[];
+    for(let i=0;i<lines.length;i++){
+      const ln=lines[i].trim();
+      const im=ITEM_RE.exec(ln);
+      if(!im)continue;
+      const pn=im[1];
+      // Line 1: extract delivery date and qty
+      const dateM=ln.match(/(\d{4}\/\d{2}\/\d{2})/);
+      const delivery=dateM?dateM[1]:'';
+      const qtyNums=(ln.replace(/\d{4}\/\d{2}\/\d{2}/g,'').replace(pn,'').match(/\b(\d{1,4}(?:,\d{3})?)\b/g)||[])
+        .map(n=>parseInt(n.replace(/,/g,''))).filter(n=>n>0&&n<10000);
+      const qty=qtyNums.length?String(qtyNums[0]):'';
+      // Collect next 4 lines (until next item or blank)
+      const block=[];
+      for(let j=i+1;j<lines.length&&j<i+5;j++){
+        const nl=lines[j].trim();
+        if(!nl||/^以下空白/.test(nl))break;
+        if(ITEM_RE.exec(nl))break;
+        block.push(nl);
+      }
+      // Description: first block line starting with letter, take text parts before double-space
+      let desc='';
+      for(const bl of block){
+        if(/^[A-Za-z]/.test(bl)&&bl.length>4){
+          const parts=bl.split(/\s{2,}/);
+          const dp=parts.filter(p=>p.length>1&&!/^Q\d{3}$|^PCS$|^N$|^\d+$/.test(p)&&!p.startsWith('0 '));
+          if(dp.length){desc=dp.slice(0,2).join(' ').trim();break;}
+        }
+      }
+      // Unit price: number (possibly decimal) immediately before 10+ digit PO reference
+      let unit_price='';
+      for(const bl of block){
+        const upm=bl.match(/\b(\d{1,3}(?:\.\d+)?)\s+\d{10,}/);
+        if(upm){unit_price=upm[1];break;}
+      }
+      // Amount: comma-formatted number like 15,100 or 211,400 or 4,200
+      let amount='';
+      for(const bl of block){
+        const am=bl.match(/\b(\d{1,3}(?:,\d{3})+)\b/);
+        if(am){amount=am[1].replace(/,/g,'');break;}
+      }
+      pdfItems.push({line_no:String(pdfItems.length+1),vendor_pn:pn,customer_pn:pn,description:desc,qty,unit:'PCS',unit_price,amount,delivery_date:delivery});
+    }
+    if(pdfItems.length)return pdfItems;
+    // Fallback to stacked-column parser (for embedded sample / clean text)
+  }
+
+  // ── MCT / QBIC (Stacked-column parser — fallback for clean text) ──
+  if(fmt==='MCT'||fmt==='QBIC'){
+    // The stacked column PDF format: first line per item has
+    //   0001  ITEM_CODE  [numbers: qty, 0(已交), unit_price, amount]  [date]
+    // Subsequent lines in that cell are the description (品名/規格)
+    const seqCodeRe=/^(\d{4})\s+([\w\-\.\/]+)(.*)/;
+    for(let i=0;i<lines.length;i++){
+      const ln=lines[i].trim();
+      const m=seqCodeRe.exec(ln);
+      if(!m)continue;
+      const[,seq,pn,rest]=m;
+      if(parseInt(seq)===0)continue;
+      // Must look like a real item code (has digits or is alphanumeric 4+ chars)
+      if(pn.length<3||!/\w{3}/.test(pn))continue;
+      // Skip header-like items
+      if(/品號|品名|採購|序號|NO\.|合計|小計/i.test(pn))continue;
+
+      const dateM=rest.match(/(\d{4}\/\d{2}\/\d{2})/);
+      const delivery=dateM?dateM[1]:'';
+      const restClean=rest.replace(/\d{4}\/\d{2}\/\d{2}/g,'').replace(/\bPCS\b/gi,'').replace(/\bEA\b/gi,'');
+      const nums=(restClean.match(/[\d,]+\.?\d*/g)||[])
+        .map(n=>parseFloat(n.replace(/,/g,'')))
+        .filter(n=>n>0&&n<99999999);
+
+      // Collect description from subsequent lines until next 4-digit seq or blank
+      const descLines=[];
+      for(let j=i+1;j<lines.length&&j<i+8;j++){
+        const nx=lines[j].trim();
+        if(!nx)break;
+        if(/^\d{4}\s+\w/.test(nx))break;  // next item
+        if(!/^[\d,\.]+$/.test(nx)&&!/^(PCS|EA|PC)$/.test(nx))descLines.push(nx);
+      }
+
+      let qty='',unit_price='',amount='';
+      // Expected: [qty, 已交qty(often 0), unit_price, amount]
+      if(nums.length>=4){qty=String(nums[0]);unit_price=String(nums[2]);amount=String(nums[3]);}
+      else if(nums.length===3){qty=String(nums[0]);unit_price=String(nums[1]);amount=String(nums[2]);}
+      else if(nums.length>=1)qty=String(nums[0]);
+
+      items.push({line_no:seq,vendor_pn:pn,customer_pn:pn,description:descLines.slice(0,4).join(' ').trim(),qty,unit:'PCS',unit_price,amount,delivery_date:delivery});
+    }
+
+    // Fallback state machine if line-based failed
+    if(!items.length){
+      let state='idle',cur={},descBuf=[];
+      for(const line of lines){
+        const ln=line.trim();
+        if(state==='idle'){
+          const m2=/^(\d{4})\s+([\w\-\.\/]+)\s*(.*)/.exec(ln);
+          if(m2&&/\d/.test(m2[2])&&m2[2].length>=3){
+            cur={line_no:m2[1],vendor_pn:m2[2]};descBuf=[];
+            const rest2=m2[3];
+            const dM=rest2.match(/(\d{4}\/\d{2}\/\d{2})/);
+            if(dM)cur.delivery_date=dM[1];
+            const n2=(rest2.replace(/\d{4}\/\d{2}\/\d{2}/g,'').replace(/PCS/g,'').match(/[\d,]+\.?\d*/g)||[]).map(n=>parseFloat(n.replace(/,/g,''))).filter(n=>n>0);
+            if(n2.length>=4){cur.qty=String(n2[0]);cur.unit_price=String(n2[2]);cur.amount=String(n2[3]);}
+            else if(n2.length===3){cur.qty=String(n2[0]);cur.unit_price=String(n2[1]);cur.amount=String(n2[2]);}
+            else if(n2.length>=1)cur.qty=String(n2[0]);
+            state='collect';
+          }
+        }else{
+          const nextSeq=/^(\d{4})\s+[\w\-\.\/]+/.exec(ln);
+          if(nextSeq&&parseInt(nextSeq[1])>0){
+            items.push({...cur,description:descBuf.join(' ').trim(),unit:'PCS',delivery_date:cur.delivery_date||''});
+            cur={};descBuf=[];state='idle';
+            // reprocess this line - push a sentinel
+            const m3=/^(\d{4})\s+([\w\-\.\/]+)\s*(.*)/.exec(ln);
+            if(m3){cur={line_no:m3[1],vendor_pn:m3[2]};state='collect';}
+          }else if(!ln){
+            if(cur.qty){items.push({...cur,description:descBuf.join(' ').trim(),unit:'PCS',delivery_date:cur.delivery_date||''});cur={};descBuf=[];state='idle';}
+          }else{
+            if(/^\d{4}\/\d{2}\/\d{2}$/.test(ln))cur.delivery_date=ln;
+            else if(/^[\d,]+\.?\d*$/.test(ln)){
+              const n=parseFloat(ln.replace(/,/g,''));
+              if(n>0){
+                if(!cur.qty)cur.qty=String(n);
+                else if(!cur.unit_price)cur.unit_price=String(n);
+                else if(!cur.amount)cur.amount=String(n);
+              }
+            }else if(!/^(PCS|EA|PC)$/.test(ln)){descBuf.push(ln);}
+          }
+        }
+      }
+      if(state==='collect'&&cur.vendor_pn)items.push({...cur,description:descBuf.join(' ').trim(),unit:'PCS',delivery_date:cur.delivery_date||''});
+    }
+    return items;
+  }
+
+  // ── STARTECH (UK & US PO) ─────────────────────────────────────────
+  // pdf.js layout: item number parts at x≈47, description parts at x≈104
+  // Each pdf-line may look like: "132UE-  Thunderbolt 4 Dock HDMI  2026-06-30  504.00   ea  133.00  67,032.00"
+  // Continuation lines: "TB4USB4DOC  DP" (left=item code part, right=desc) or "K" (item code part only)
+  // Quantity lines: "Quantity : 504  Site : UK   Warehouse : STUKWH01"
+  if(fmt==='STARTECH'){
+    const stItems=[];
+    const MAIN_RE=/^([\w\-]+(?:-\s+)?)\s{2,}(.+?)\s{2,}(\d{4}-\d{2}-\d{2})\s+([\d,]+\.?\d*)\s+ea\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)/i;
+    const CONT_RE=/^([A-Z][A-Z0-9\-]*)(?:\s{2,}(.+))?$/;
+    const QTY_RE=/^Quantity\s*:\s*([\d,]+)/i;
+    let cur=null;
+    for(let i=0;i<lines.length;i++){
+      const ln=lines[i];
+      const lnt=ln.trim();
+      // Skip header/footer rows
+      if(!lnt||/^Item number|^Currency|^Vendor\s+Delivery/i.test(lnt))continue;
+      if(/^Quantity\s*:/i.test(lnt)){
+        if(cur){
+          const qm=lnt.match(QTY_RE);
+          if(qm)cur.qty=qm[1].replace(/,/g,'');
+          stItems.push(cur);cur=null;
+        }
+        continue;
+      }
+      // Try main line pattern (item has date+qty+price+amount)
+      const mm=MAIN_RE.exec(lnt);
+      if(mm){
+        if(cur){stItems.push(cur);cur=null;}
+        const rawCode=mm[1].replace(/\s/g,'');
+        cur={
+          line_no:String(stItems.length+1),
+          vendor_pn:rawCode,
+          customer_pn:rawCode,
+          description:mm[2].trim(),
+          qty:mm[4].replace(/,/g,'').replace(/\.00$/,''),
+          unit:'ea',
+          unit_price:mm[5].replace(/,/g,''),
+          amount:mm[6].replace(/,/g,''),
+          delivery_date:mm[3]
+        };
+        continue;
+      }
+      // Continuation line (only if we have an active item)
+      if(cur){
+        // Check if it looks like a stop signal (new section header, USD summary)
+        if(/^(USD|EUR|GBP)\s+[\d,]+/i.test(lnt)){stItems.push(cur);cur=null;continue;}
+        const cm=CONT_RE.exec(lnt);
+        if(cm){
+          // Left part: item code continuation (all caps/digits/hyphen)
+          const left=cm[1];
+          const right=cm[2]?cm[2].trim():'';
+          if(/^[A-Z][A-Z0-9\-]*$/.test(left)){
+            cur.vendor_pn+=left;
+            cur.customer_pn=cur.vendor_pn;
+            if(right)cur.description+=' '+right;
+          }else{
+            cur.description+=' '+lnt;
+          }
+        }else{
+          cur.description+=' '+lnt;
+        }
+      }
+    }
+    if(cur)stItems.push(cur);
+    if(stItems.length)return stItems;
+  }
+
+  // ── QSI_QUOT ──────────────────────────────────────────────────────
+  if(fmt==='QSI_QUOT'){
+    const re=/^(\d+)\s+([\w\-\.]+)\s+(.+?)\s+(\d+)\s+\$?([\d,]+\.?\d*)\s+\$?([\d,]+\.?\d*)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      items.push({line_no:m[1],vendor_pn:m[2],customer_pn:m[2],description:m[3].trim(),qty:m[4],unit:'PC',unit_price:m[5].replace(/,/g,''),amount:m[6].replace(/,/g,''),delivery_date:''});
+    }
+    return items;
+  }
+
+  // ── TONGXING (同星) ───────────────────────────────────────────────
+  // Format: seq# | 品號/規格 | 採購數量 | 採購單位 | 單價 | 金額 | 交貨日期
+  // e.g.: 1  3EICDL6950B0000087  5,040  PCS  16.00000  80,640.00  2026/04/06
+  if(fmt==='TONGXING'){
+    const re=/^(\d{1,3})\s+([\w]+)\s+([\d,]+)\s+(PCS|EA|PC|片|顆|個)\s+([\d.]+)\s+([\d,]+\.?\d*)\s+(\d{4}\/\d{2}\/\d{2})/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      // Get optional description from next line
+      const pos=m.index+m[0].length;
+      const nl=(text.slice(pos,pos+200).split('\n')[1]||'').trim();
+      const desc=nl&&!/^\d/.test(nl)?nl.replace(/備註.*$/,'').trim():'';
+      items.push({line_no:m[1],vendor_pn:m[2],customer_pn:m[2],description:desc,qty:m[3].replace(/,/g,''),unit:m[4],unit_price:m[5],amount:m[6].replace(/,/g,''),delivery_date:m[7]});
+    }
+    // Fallback generic
+    if(!items.length){
+      const re2=/^(\d{1,3})\s+([\w\-\.\/]+)\s+(.+)/gm;
+      while((m=re2.exec(text))!==null){
+        const[,lineNo,pn,rest]=m;
+        if(parseInt(lineNo)===0)continue;
+        if(/採購|序號|品號|項次/i.test(pn))continue;
+        const it=mkItem(lineNo,pn,rest,'');
+        if(it.qty)items.push(it);
+      }
+    }
+    return items;
+  }
+
+  // ── HONGXINDA (宏欣達) ────────────────────────────────────────────
+  // Format: seq# | 货品编码 | 货品名称 | 货品规格 | 采购总数 | 含税单价 | 含税金额 | 交期
+  // e.g.: 1  IS-U-6950-0001  IC  IC: DL6950-N BGA484 SMD  3360  16.5  55440  2025/12/20
+  if(fmt==='HONGXINDA'){
+    const re=/^(\d{1,3})\s+([\w\-\.]+)\s+(.+?)\s+([\d,]+)\s+([\d.]+)\s+([\d,]+)\s+(\d{4}[\-\/]\d{2}[\-\/]\d{2})/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      if(parseInt(m[1])===0)continue;
+      if(/序号|货品|採購|合计/i.test(m[2]))continue;
+      items.push({line_no:m[1],vendor_pn:m[2],customer_pn:m[2],description:m[3].trim(),qty:m[4].replace(/,/g,''),unit:'PCS',unit_price:m[5],amount:m[6],delivery_date:m[7].replace(/-/g,'/')});
+    }
+    if(!items.length){
+      const re2=/^(\d{1,3})\s+([\w\-\.]+)\s+(.+)/gm;
+      while((m=re2.exec(text))!==null){
+        const[,lineNo,pn,rest]=m;
+        if(parseInt(lineNo)===0)continue;
+        if(/序号|货品|採購|合计/i.test(pn))continue;
+        const it=mkItem(lineNo,pn,rest,'');
+        if(it.qty)items.push(it);
+      }
+    }
+    return items;
+  }
+
+  // ── BIRCH (聯流) ─────────────────────────────────────────────────
+  // Multi-column layout merges columns by y-position.
+  // Main item line contains: part prefix (ending -), price (float), ROC date, qty (int before or after prefix)
+  // Next line: part suffix + amount near PCS
+  if(fmt==='BIRCH'){
+    for(let i=0;i<lines.length;i++){
+      const ln=lines[i].trim();
+      const pnMatch=ln.match(/([A-Z]{2,5}\d{2,3}[A-Za-z0-9\-]+-)/);
+      if(!pnMatch)continue;
+      const pnPrefix=pnMatch[1];
+      const pnEnd=pnMatch.index+pnPrefix.length;
+      const afterCode=ln.slice(pnEnd).trim();
+      const beforeCode=ln.slice(0,pnMatch.index).trim();
+      const dateM=ln.match(/(\d{2,3}\/\d{2}\/\d{2})/);
+      if(!dateM)continue; // must have ROC date
+      // Price: first float-looking number after part code
+      const priceM=afterCode.match(/([\d,]+\.\d+)/);
+      const price=priceM?priceM[1]:'';
+      // Qty: integer immediately before price in afterCode (item2 pattern: "100  307.00")
+      // or last non-zero-padded integer before the code (item1 pattern: "200  0001  CODE-")
+      let qty='';
+      if(priceM){
+        const beforePrice=afterCode.slice(0,afterCode.indexOf(priceM[1])).trim();
+        const qtyM=beforePrice.match(/^(\d+)$/);
+        if(qtyM)qty=qtyM[1];
+      }
+      if(!qty){
+        const beforeInts=(beforeCode.match(/\b(\d+)\b/g)||[]).filter(n=>!n.startsWith('0')&&parseInt(n)>9);
+        qty=beforeInts.slice(-1)[0]||'';
+      }
+      // Part suffix on next line: pattern like "1M256EU" (digit+uppercase+digits+letters)
+      let pn=pnPrefix;
+      const nxt=(lines[i+1]||'').trim();
+      const sfxM=nxt.match(/\b(\d[A-Z]\d+[A-Za-z0-9]*)\b/)||nxt.match(/^([A-Z]{1,2}\d+[A-Za-z0-9]+)/);
+      if(sfxM)pn+=sfxM[1];
+      // Amount: look ahead for float near PCS
+      let amount='';
+      for(let j=i+1;j<=Math.min(i+6,lines.length-1);j++){
+        const al=lines[j].trim();
+        const amtM=al.match(/([\d,]+\.\d{2})\s+PCS/i)||al.match(/PCS\s+([\d,]+\.\d{2})/i)||
+                   al.match(/([\d,]+\.\d{2})\s+Stock/i)||al.match(/Stock\s+([\d,]+\.\d{2})/i);
+        if(amtM){amount=amtM[1].replace(/,/g,''); break;}
+      }
+      // Convert ROC date to Gregorian
+      const rp=dateM[1].split('/');
+      const gregDate=`${parseInt(rp[0])+1911}/${rp[1]}/${rp[2]}`;
+      if(qty||price)
+        items.push({line_no:String(items.length+1),vendor_pn:pn,customer_pn:pn,
+                   description:'',qty,unit:'PCS',unit_price:price.replace(/,/g,''),
+                   amount,delivery_date:gregDate});
+    }
+    return items;
+  }
+
+  // ── Generic Chinese Sequential PO (shared for multiple formats) ───
+  // Covers: YIJIE, WANKE, HONGCAI, TAITUAN, GOODE
+  // Common pattern: seq# | item_code | name/spec/... | qty | unit | unit_price | amount | delivery
+  const CHINA_GENERIC=['YIJIE','WANKE','HONGCAI','TAITUAN','GOODE'];
+  if(CHINA_GENERIC.includes(fmt)){
+    const re=/^(\d{1,3})\s+([\w\-\.\/]+)\s+(.+)/gm;
+    let m;
+    while((m=re.exec(text))!==null){
+      const[,lineNo,pn,rest]=m;
+      if(parseInt(lineNo)===0)continue;
+      // Skip lines that look like headers
+      if(/採購|序號|品號|項次|NO\.|料件|單位|數量|單價|金額/i.test(pn))continue;
+      if(/合計|小計|總計|備|注意/i.test(pn))continue;
+      // Check for continuation description line
+      const pos=m.index+m[0].length;
+      const nextLine=(text.slice(pos,pos+200).split('\n')[1]||'').trim();
+      const hasContLine=nextLine.length>2&&!/^\d{1,3}\s+[\w\-]/.test(nextLine)&&!/^[\d,\.]+$/.test(nextLine)&&!/^(PCS|EA)$/.test(nextLine);
+      const it=mkItem(lineNo,pn,rest,hasContLine?nextLine:'');
+      if(it.qty)items.push(it);
+    }
+    return items;
+  }
+
+  return items; // GENERIC: no items
+}
+
+// ─── Format Label Map ──────────────────────────────────────────────
+const FMT_LABELS={
+  VERBATIM:'Verbatim',SATECHI:'Satechi',ACCO:'ACCO',ACER:'Acer Gadget',
+  ALOGIC:'ALOGIC',CABLEMATTERS:'CableMatters',CHD:'CHD Asia',
+  OWC_EU:'OWC Europe',OWC_US:'OWC US',PLUGABLE:'Plugable',
+  RAIDSONIC:'RaidSonic',TARGUS:'Targus',TARGUS_OSCA:'Targus OSCA',TRENDNET:'TRENDnet',
+  VOXMICRO:'Voxmicro',TERALINK:'兆網 TeraLink',GUANGYU:'廣豫',
+  REGULUS:'銳力 Regulus',
+  MCT:'MCT 茂傑',QBIC:'QBIC 和暢',TONGXING:'同星 Action Star',
+  HONGXINDA:'宏欣達',YIJIE:'易捷',WANKE:'萬可',HONGCAI:'鴻才',
+  TAITUAN:'台端',BIRCH:'聯流 Birch',GOODE:'固德',
+  STARTECH:'StarTech.com',QSI_QUOT:'QSI 報價',GENERIC:'通用'
+};
+
+// ─── Render ─────────────────────────────────────────────────────────
+let allExport=[];
+
+function deSpaceText(t){
+  // Some PDFs render each character as a separate glyph with spaces between letters.
+  // Collapse sequences of 2+ single letters separated by single spaces: "O R D E R" → "ORDER"
+  // Requires the sequence to be preceded/followed by space/start/end (not mid-word digits)
+  return t.replace(/(?<![A-Za-z\d])([A-Za-z])(?: ([A-Za-z]))+(?![A-Za-z\d])/g,
+    m => m.replace(/ /g,''));
+}
+
+function render(file,text){
+  // Normalize spaced-character PDFs before any parsing
+  const words=text.split(/\s+/).filter(w=>w.length>0);
+  const singleAlpha=words.filter(w=>/^[A-Za-z]$/.test(w)).length;
+  if(singleAlpha/words.length>0.25) text=deSpaceText(text);
+
+  const fmt=detectFmt(text);
+  const header=parseHeader(text,fmt);
+  const items=parseItems(text,fmt);
+
+  const container=document.getElementById('resultsList');
+  document.getElementById('results').style.display='block';
+
+  if(items.length){
+    items.forEach(it=>allExport.push({file:file.name,format:fmt,...header,...it}));
+    document.getElementById('btnExport').style.display='inline-block';
+  }
+
+  const rawId='raw_'+Math.random().toString(36).slice(2);
+  const card=document.createElement('div');
+  card.className='card';
+
+  const fmtLabel=FMT_LABELS[fmt]||fmt;
+
+  const headerHtml=Object.entries(header).filter(([,v])=>v).length
+    ?`<div class="meta-row">${Object.entries(header).filter(([,v])=>v).map(([k,v])=>`
+        <div class="meta-pill" onclick="copyV('${v.replace(/'/g,"\\'")}')">
+          <div class="ml">${k}</div><div class="mv">${v}</div>
+        </div>`).join('')}</div>`
+    :`<div class="warn">⚠️ 未找到訂單抬頭資訊</div>`;
+
+  const COLS=[
+    {k:'line_no',l:'Line'},
+    {k:'vendor_pn',l:'QSI PN'},
+    {k:'customer_pn',l:'Customer PN'},
+    {k:'description',l:'Description'},
+    {k:'qty',l:'QTY',num:true},
+    {k:'unit',l:'Unit'},
+    {k:'unit_price',l:'Unit Price',num:true},
+    {k:'amount',l:'Amount',num:true},
+    {k:'delivery_date',l:'Delivery'},
+  ];
+
+  const tableHtml=items.length
+    ?`<div class="section-title">品項明細（${items.length} 筆）</div>
+      <div class="table-wrap"><table>
+        <thead><tr>${COLS.map(c=>`<th>${c.l}</th>`).join('')}</tr></thead>
+        <tbody>
+        ${items.map(it=>`<tr>${COLS.map(c=>`<td class="${c.num?'num':c.k==='vendor_pn'||c.k==='customer_pn'?'mono':''}">${it[c.k]||'—'}</td>`).join('')}</tr>`).join('')}
+        ${items.some(it=>it.amount&&it.amount!=='—')?`
+        <tr class="total-row">
+          <td colspan="7" style="text-align:right">Total</td>
+          <td class="num">${items.reduce((s,it)=>s+(parseFloat((it.amount||'0').replace(/,/g,''))||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+          <td></td>
+        </tr>`:''}
+        </tbody>
+      </table></div>`
+    :`<div class="no-items">⚠️ 未識別出品項明細（可展開原始文字確認格式）</div>`;
+
+  card.innerHTML=`
+    <div class="card-head">
+      <span style="font-size:1.2rem">${ficon(file.type,file.name.toLowerCase())}</span>
+      <span class="fname">${file.name}</span>
+      <span class="fmt-badge">${fmtLabel}</span>
+      <span style="font-size:.72rem;opacity:.8">${(file.size/1024).toFixed(1)} KB</span>
+    </div>
+    <div class="card-body">
+      ${headerHtml}${tableHtml}
+      <span class="raw-toggle" onclick="const el=document.getElementById('${rawId}');el.style.display=el.style.display==='block'?'none':'block'">▶ 查看原始文字</span>
+      <pre class="raw-text" id="${rawId}">${text.slice(0,3500).replace(/[<>]/g,c=>c==='<'?'&lt;':'&gt;')}${text.length>3500?'\n…(截斷)':''}</pre>
+    </div>`;
+
+  container.appendChild(card);
+  document.getElementById('resultsTitle').textContent=`提取結果（${document.querySelectorAll('.card').length} 個檔案）`;
+}
+
+function renderErr(file,msg){
+  const container=document.getElementById('resultsList');
+  document.getElementById('results').style.display='block';
+  const card=document.createElement('div');
+  card.className='card';
+  card.innerHTML=`<div class="card-head"><span>${ficon(file.type,file.name)}</span><span class="fname">${file.name}</span></div>
+    <div class="card-body"><div class="warn" style="background:#fff5f5;border-color:#ffd0d0;color:#c0392b">❌ 處理失敗：${msg}</div></div>`;
+  container.appendChild(card);
+}
+
+// ─── Export CSV ──────────────────────────────────────────────────────
+function exportCSV(){
+  if(!allExport.length)return;
+  const keys=Object.keys(allExport[0]);
+  const rows=[keys.map(k=>k),...allExport.map(r=>keys.map(k=>String(r[k]||'').replace(/"/g,'""')).map(v=>`"${v}"`))]
+    .map(r=>r.join(','));
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['﻿'+rows.join('\n')],{type:'text/csv;charset=utf-8;'}));
+  a.download='PO_明細_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+}
+
+function clearAll(){
+  document.getElementById('resultsList').innerHTML='';
+  document.getElementById('results').style.display='none';
+  document.getElementById('btnExport').style.display='none';
+  allExport=[];
+}
+
+// ─── File Readers ────────────────────────────────────────────────────
+async function _pdfRenderOCR(pdf,fname){
+  setP(15,`PDF 轉圖片 OCR：${fname}`);
+  let text='';
+  for(let i=1;i<=Math.min(pdf.numPages,1);i++){
+    const page=await pdf.getPage(i);
+    const vp=page.getViewport({scale:6});
+    const canvas=document.createElement('canvas');
+    canvas.width=vp.width; canvas.height=vp.height;
+    await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    setP(18,'分析頁面內容區域…');
+    const ctx=canvas.getContext('2d');
+    const idata=ctx.getImageData(0,0,canvas.width,canvas.height);
+    const px=idata.data;
+    const darkByRow=[];
+    for(let y=0;y<canvas.height;y++){
+      let dark=0;
+      for(let x=0;x<canvas.width;x+=4){
+        const k=(y*canvas.width+x)*4;
+        if((px[k]+px[k+1]+px[k+2])/3<210) dark++;
+      }
+      darkByRow.push(dark);
+    }
+    const allDarkRows=darkByRow.map((v,i)=>i).filter(i=>darkByRow[i]>8);
+    const borderRows=darkByRow.map((v,i)=>i).filter(i=>darkByRow[i]>80);
+    const cropTop=allDarkRows.length?Math.max(0,allDarkRows[0]-40):0;
+    const cropBot=borderRows.length?Math.min(canvas.height,borderRows[borderRows.length-1]+150):canvas.height;
+    const cw=canvas.width, ch=cropBot-cropTop;
+    const crop=document.createElement('canvas');
+    crop.width=cw*2; crop.height=ch*2;
+    crop.getContext('2d').drawImage(canvas,0,cropTop,cw,ch,0,0,cw*2,ch*2);
+    const enh=document.createElement('canvas');
+    enh.width=crop.width; enh.height=crop.height;
+    const ec=enh.getContext('2d');
+    ec.filter='contrast(300%) grayscale(100%)';
+    ec.drawImage(crop,0,0);
+    setP(20,'OCR 辨識中…');
+    const dataUrl=enh.toDataURL('image/png');
+    const r=await Tesseract.recognize(dataUrl,'eng',{
+      logger:m=>{ if(m.status==='recognizing text') setP(22+Math.round(m.progress*68),'OCR…'); },
+      'tessedit_pageseg_mode':'4'
+    });
+    text+=r.data.text+'\n';
+  }
+  return text;
+}
+
+async function readPDF(file){
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  let out='';
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i);
+    const content=await page.getTextContent();
+    // Sort items by y (descending) then x (ascending) for reading order
+    const its=content.items.slice().sort((a,b)=>{
+      const dy=Math.round(b.transform[5])-Math.round(a.transform[5]);
+      return dy!==0?dy:a.transform[4]-b.transform[4];
+    });
+    // Group into lines by y position (tolerance: 4px)
+    let lastY=null,line='';
+    for(const it of its){
+      const y=Math.round(it.transform[5]);
+      if(lastY!==null&&Math.abs(y-lastY)>4){out+=line+'\n';line='';}
+      line+=(line?'  ':'')+it.str;
+      lastY=y;
+    }
+    if(line)out+=line+'\n';
+    out+='\n';
+  }
+  // OCR fallback: when PDF is vector-graphic with almost no extractable text
+  // Normalize Unicode compatibility ideographs (e.g. U+F9E0→易) common in Taiwanese PDFs
+  out=out.normalize('NFKC');
+  const wordCount=out.trim().split(/\s+/).filter(w=>w.length>2).length;
+  if(wordCount<20) out=await _pdfRenderOCR(pdf,file.name);
+  return out;
+}
+
+async function readExcel(file){
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});
+  return wb.SheetNames.map(n=>XLSX.utils.sheet_to_csv(wb.Sheets[n])).join('\n');
+}
+async function readWord(file){
+  const buf=await file.arrayBuffer();
+  return(await mammoth.extractRawText({arrayBuffer:buf})).value;
+}
+async function readImage(file){
+  setP(25,`OCR 辨識：${file.name}`);
+  const url=URL.createObjectURL(file);
+  const r=await Tesseract.recognize(url,'eng',{logger:m=>{if(m.status==='recognizing text')setP(25+m.progress*55,'OCR…');}});
+  URL.revokeObjectURL(url);return r.data.text;
+}
+
+// ─── Main ────────────────────────────────────────────────────────────
+async function processFiles(files){
+  if(!files.length)return;
+  document.getElementById('progWrap').style.display='block';
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    setP(Math.round(i/files.length*100),`處理：${file.name}`);
+    try{
+      const t=file.type.toLowerCase(),n=file.name.toLowerCase();
+      let text='';
+      if(t.includes('pdf')||n.endsWith('.pdf'))text=await readPDF(file);
+      else if(t.startsWith('image')||/\.(jpg|jpeg|png|gif|bmp|tiff|tif|webp)$/.test(n))text=await readImage(file);
+      else if(/xlsx|xls/.test(n)||t.includes('sheet')||t.includes('excel'))text=await readExcel(file);
+      else if(n.endsWith('.csv')||t.includes('csv'))text=await file.text();
+      else if(/docx?/.test(n)||t.includes('word'))text=await readWord(file);
+      else text=await file.text();
+      render(file,text);
+    }catch(e){renderErr(file,e.message||String(e));}
+  }
+  setP(100,'完成！');
+  setTimeout(()=>{document.getElementById('progWrap').style.display='none';},1200);
+}
+
+const zone=document.getElementById('uploadZone'),inp=document.getElementById('fileInput');
+zone.addEventListener('click',()=>inp.click());
+inp.addEventListener('change',e=>processFiles([...e.target.files]));
+zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('dragover');});
+zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));
+zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('dragover');processFiles([...e.dataTransfer.files]);});
+</script>
+</body>
+</html>
