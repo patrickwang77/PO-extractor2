@@ -1300,16 +1300,31 @@ let allExport=[];
 function deSpaceText(t){
   // Some PDFs render each character as a separate glyph with spaces between letters.
   // Collapse sequences of 2+ single letters separated by single spaces: "O R D E R" → "ORDER"
-  // Requires the sequence to be preceded/followed by space/start/end (not mid-word digits)
   return t.replace(/(?<![A-Za-z\d])([A-Za-z])(?: ([A-Za-z]))+(?![A-Za-z\d])/g,
     m => m.replace(/ /g,''));
+}
+
+function collapseChineseSpaces(t){
+  // PDF font positioning often inserts spaces between every CJK character.
+  // Match a run of CJK chars separated by single spaces and remove the spaces.
+  return t.replace(/([一-鿿㐀-䶿＀-￯])(?: ([一-鿿㐀-䶿＀-￯]))+/g,
+    m => m.replace(/ /g,''));
+}
+
+function normalizeText(t){
+  // Run both normalizers; re-run CJK collapse in case runs overlap
+  t=deSpaceText(t);
+  t=collapseChineseSpaces(t);
+  t=collapseChineseSpaces(t); // second pass catches edge overlap
+  return t;
 }
 
 function render(file,text,flags={}){
   // Normalize spaced-character PDFs before any parsing
   const words=text.split(/\s+/).filter(w=>w.length>0);
   const singleAlpha=words.filter(w=>/^[A-Za-z]$/.test(w)).length;
-  if(singleAlpha/words.length>0.25) text=deSpaceText(text);
+  const singleCJK=words.filter(w=>/^[一-鿿]$/.test(w)).length;
+  if(singleAlpha/words.length>0.25||singleCJK/words.length>0.15) text=normalizeText(text);
 
   const fmt=detectFmt(text);
   const header=parseHeader(text,fmt);
@@ -1418,7 +1433,7 @@ async function _pdfRenderOCR(pdf,fname){
   for(let i=1;i<=total;i++){
     setP(10+Math.round((i-1)/total*80),`OCR 第 ${i}/${total} 頁：${fname}`);
     const page=await pdf.getPage(i);
-    const vp=page.getViewport({scale:3});
+    const vp=page.getViewport({scale:4});
     const canvas=document.createElement('canvas');
     canvas.width=vp.width; canvas.height=vp.height;
     await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
