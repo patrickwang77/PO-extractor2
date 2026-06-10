@@ -1305,7 +1305,7 @@ function deSpaceText(t){
     m => m.replace(/ /g,''));
 }
 
-function render(file,text){
+function render(file,text,flags={}){
   // Normalize spaced-character PDFs before any parsing
   const words=text.split(/\s+/).filter(w=>w.length>0);
   const singleAlpha=words.filter(w=>/^[A-Za-z]$/.test(w)).length;
@@ -1368,7 +1368,7 @@ function render(file,text){
     <div class="card-head">
       <span style="font-size:1.2rem">${ficon(file.type,file.name.toLowerCase())}</span>
       <span class="fname">${file.name}</span>
-      <span class="fmt-badge">${fmtLabel}</span>
+      <span class="fmt-badge">${fmtLabel}</span>${flags.ocr?'<span class="fmt-badge" style="background:rgba(255,200,0,.35)">🔍 OCR</span>':''}
       <span style="font-size:.72rem;opacity:.8">${(file.size/1024).toFixed(1)} KB</span>
     </div>
     <div class="card-body">
@@ -1411,45 +1411,25 @@ function clearAll(){
 
 // ─── File Readers ────────────────────────────────────────────────────
 async function _pdfRenderOCR(pdf,fname){
-  setP(15,`PDF 轉圖片 OCR：${fname}`);
+  // pdf-ocr skill integration: process all pages, support English + Traditional Chinese
+  setP(10,`🔍 圖片型 PDF，啟動 OCR：${fname}`);
   let text='';
-  for(let i=1;i<=Math.min(pdf.numPages,1);i++){
+  const total=pdf.numPages;
+  for(let i=1;i<=total;i++){
+    setP(10+Math.round((i-1)/total*80),`OCR 第 ${i}/${total} 頁：${fname}`);
     const page=await pdf.getPage(i);
-    const vp=page.getViewport({scale:6});
+    const vp=page.getViewport({scale:3});
     const canvas=document.createElement('canvas');
     canvas.width=vp.width; canvas.height=vp.height;
     await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
-    setP(18,'分析頁面內容區域…');
-    const ctx=canvas.getContext('2d');
-    const idata=ctx.getImageData(0,0,canvas.width,canvas.height);
-    const px=idata.data;
-    const darkByRow=[];
-    for(let y=0;y<canvas.height;y++){
-      let dark=0;
-      for(let x=0;x<canvas.width;x+=4){
-        const k=(y*canvas.width+x)*4;
-        if((px[k]+px[k+1]+px[k+2])/3<210) dark++;
-      }
-      darkByRow.push(dark);
-    }
-    const allDarkRows=darkByRow.map((v,i)=>i).filter(i=>darkByRow[i]>8);
-    const borderRows=darkByRow.map((v,i)=>i).filter(i=>darkByRow[i]>80);
-    const cropTop=allDarkRows.length?Math.max(0,allDarkRows[0]-40):0;
-    const cropBot=borderRows.length?Math.min(canvas.height,borderRows[borderRows.length-1]+150):canvas.height;
-    const cw=canvas.width, ch=cropBot-cropTop;
-    const crop=document.createElement('canvas');
-    crop.width=cw*2; crop.height=ch*2;
-    crop.getContext('2d').drawImage(canvas,0,cropTop,cw,ch,0,0,cw*2,ch*2);
     const enh=document.createElement('canvas');
-    enh.width=crop.width; enh.height=crop.height;
+    enh.width=canvas.width; enh.height=canvas.height;
     const ec=enh.getContext('2d');
-    ec.filter='contrast(300%) grayscale(100%)';
-    ec.drawImage(crop,0,0);
-    setP(20,'OCR 辨識中…');
+    ec.filter='contrast(200%) grayscale(100%)';
+    ec.drawImage(canvas,0,0);
     const dataUrl=enh.toDataURL('image/png');
-    const r=await Tesseract.recognize(dataUrl,'eng',{
-      logger:m=>{ if(m.status==='recognizing text') setP(22+Math.round(m.progress*68),'OCR…'); },
-      'tessedit_pageseg_mode':'4'
+    const r=await Tesseract.recognize(dataUrl,'eng+chi_tra',{
+      logger:m=>{ if(m.status==='recognizing text') setP(10+Math.round(((i-1+m.progress)/total)*80),`OCR 第 ${i} 頁…`); }
     });
     text+=r.data.text+'\n';
   }
@@ -1483,8 +1463,8 @@ async function readPDF(file){
   // Normalize Unicode compatibility ideographs (e.g. U+F9E0→易) common in Taiwanese PDFs
   out=out.normalize('NFKC');
   const wordCount=out.trim().split(/\s+/).filter(w=>w.length>2).length;
-  if(wordCount<20) out=await _pdfRenderOCR(pdf,file.name);
-  return out;
+  if(wordCount<20){out=await _pdfRenderOCR(pdf,file.name);return{text:out,ocr:true};}
+  return{text:out,ocr:false};
 }
 
 async function readExcel(file){
@@ -1512,14 +1492,14 @@ async function processFiles(files){
     setP(Math.round(i/files.length*100),`處理：${file.name}`);
     try{
       const t=file.type.toLowerCase(),n=file.name.toLowerCase();
-      let text='';
-      if(t.includes('pdf')||n.endsWith('.pdf'))text=await readPDF(file);
+      let text='',flags={};
+      if(t.includes('pdf')||n.endsWith('.pdf')){const r=await readPDF(file);text=r.text;flags.ocr=r.ocr;}
       else if(t.startsWith('image')||/\.(jpg|jpeg|png|gif|bmp|tiff|tif|webp)$/.test(n))text=await readImage(file);
       else if(/xlsx|xls/.test(n)||t.includes('sheet')||t.includes('excel'))text=await readExcel(file);
       else if(n.endsWith('.csv')||t.includes('csv'))text=await file.text();
       else if(/docx?/.test(n)||t.includes('word'))text=await readWord(file);
       else text=await file.text();
-      render(file,text);
+      render(file,text,flags);
     }catch(e){renderErr(file,e.message||String(e));}
   }
   setP(100,'完成！');
