@@ -1425,6 +1425,24 @@ function clearAll(){
 }
 
 // ─── File Readers ────────────────────────────────────────────────────
+
+function normalizeOCRText(t){
+  // Tesseract often inserts spaces around punctuation in structured documents.
+  // Fix: "27 . 03 . 2026" → "27.03.2026"
+  t=t.replace(/(\d) \. (\d)/g,'$1.$2');
+  // Fix: "11 : 49" → "11:49"
+  t=t.replace(/(\d) : (\d)/g,'$1:$2');
+  // Fix: "DOCK182AUZ - 88" → "DOCK182AUZ-88" (alphanumeric codes)
+  t=t.replace(/([A-Z0-9]) - ([A-Z0-9])/g,'$1-$2');
+  // Fix: "Order-No ." → "Order-No." (word before orphan period)
+  t=t.replace(/([A-Za-z0-9]) \. (?=[A-Z\d])/g,'$1.');
+  t=t.replace(/([A-Za-z0-9]) \.(?=\s|$)/gm,'$1.');
+  // Fix: common OCR letter confusion in keywords
+  t=t.replace(/\blssue\b/g,'Issue');
+  t=t.replace(/\bConfimed\b/gi,'Confirmed');
+  return t;
+}
+
 async function _pdfRenderOCR(pdf,fname){
   // pdf-ocr skill integration: process all pages, support English + Traditional Chinese
   setP(10,`🔍 圖片型 PDF，啟動 OCR：${fname}`);
@@ -1448,7 +1466,7 @@ async function _pdfRenderOCR(pdf,fname){
     });
     text+=r.data.text+'\n';
   }
-  return text;
+  return normalizeOCRText(text);
 }
 
 async function readPDF(file){
