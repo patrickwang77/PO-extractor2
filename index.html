@@ -276,7 +276,7 @@ function detectFmt(text){
   if(/廣豫|netpro/i.test(text)&&/purchase order/i.test(text))return'GUANGYU';
   if(/regulus|銳力科技/i.test(text)||(/Yang-Guang St/i.test(text)&&/產品單價|採購單號/i.test(text)))return'REGULUS';
   // ── Chinese / Taiwanese ──
-  if(/茂傑/.test(text)&&/生產採購單/.test(text))return'MCT';
+  if(/茂傑/.test(text))return'MCT'; // 生產採購單 often garbled by OCR
   if(/和暢/.test(text)||(/物料採購單/.test(text)&&/qbic/i.test(text)))return'QBIC';
   if(/action star|同星科技/i.test(text))return'TONGXING';
   if(/宏欣达|宏欣達/.test(text))return'HONGXINDA';
@@ -1443,9 +1443,12 @@ function normalizeOCRText(t){
   return t;
 }
 
-async function _pdfRenderOCR(pdf,fname){
-  // pdf-ocr skill integration: process all pages, support English + Traditional Chinese
-  setP(10,`🔍 圖片型 PDF，啟動 OCR：${fname}`);
+async function _pdfRenderOCR(pdf,fname,useChinese=false){
+  // pdf-ocr skill integration: process all pages
+  // Language: eng+chi_tra only when document is detected as Chinese-content;
+  // using chi_tra on English-only docs severely degrades ASCII/numeric OCR accuracy.
+  const lang=useChinese?'eng+chi_tra':'eng';
+  setP(10,`🔍 圖片型 PDF，啟動 OCR (${lang})：${fname}`);
   let text='';
   const total=pdf.numPages;
   for(let i=1;i<=total;i++){
@@ -1461,7 +1464,7 @@ async function _pdfRenderOCR(pdf,fname){
     ec.filter='contrast(200%) grayscale(100%)';
     ec.drawImage(canvas,0,0);
     const dataUrl=enh.toDataURL('image/png');
-    const r=await Tesseract.recognize(dataUrl,'eng+chi_tra',{
+    const r=await Tesseract.recognize(dataUrl,lang,{
       logger:m=>{ if(m.status==='recognizing text') setP(10+Math.round(((i-1+m.progress)/total)*80),`OCR 第 ${i} 頁…`); }
     });
     text+=r.data.text+'\n';
@@ -1492,11 +1495,19 @@ async function readPDF(file){
     if(line)out+=line+'\n';
     out+='\n';
   }
-  // OCR fallback: when PDF is vector-graphic with almost no extractable text
   // Normalize Unicode compatibility ideographs (e.g. U+F9E0→易) common in Taiwanese PDFs
   out=out.normalize('NFKC');
+  // Collapse spaced CJK chars BEFORE wordCount so Chinese text-layer PDFs are not
+  // mistakenly flagged as image-only (single chars all have length=1, fail the >2 filter).
+  out=collapseChineseSpaces(out);
+  out=collapseChineseSpaces(out);
   const wordCount=out.trim().split(/\s+/).filter(w=>w.length>2).length;
-  if(wordCount<20){out=await _pdfRenderOCR(pdf,file.name);return{text:out,ocr:true};}
+  if(wordCount<20){
+    // Detect Chinese content from text layer or filename to select OCR language
+    const hasChinese=/[一-鿿]/.test(out)||/[一-鿿]/.test(file.name);
+    out=await _pdfRenderOCR(pdf,file.name,hasChinese);
+    return{text:out,ocr:true};
+  }
   return{text:out,ocr:false};
 }
 
