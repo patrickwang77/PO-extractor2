@@ -64,6 +64,16 @@ td.mono{font-family:'Courier New',monospace;color:#4f6ef7;font-weight:600}
 .sample-bar span{font-size:.76rem;color:#888;font-weight:600;white-space:nowrap}
 .sample-btn{background:#f5f7ff;border:1.5px solid #e0e4f0;color:#4f6ef7;padding:4px 12px;border-radius:20px;font-size:.76rem;font-weight:600;cursor:pointer;transition:all .15s}
 .sample-btn:hover{background:#4f6ef7;color:#fff;border-color:#4f6ef7}
+.api-bar{max-width:700px;margin:0 auto 10px;display:flex;justify-content:flex-end;gap:8px}
+.api-key-panel{max-width:700px;margin:0 auto 16px;background:#fff;border:1.5px solid #e0e4f0;border-radius:11px;padding:12px 16px;display:none;gap:8px;align-items:center;flex-wrap:wrap}
+.api-key-panel.show{display:flex}
+.api-key-panel label{font-size:.78rem;color:#666;white-space:nowrap}
+.api-key-input{flex:1;min-width:200px;border:1.5px solid #e0e4f0;border-radius:7px;padding:5px 10px;font-size:.8rem;font-family:monospace;outline:none}
+.api-key-input:focus{border-color:#4f6ef7}
+.ai-btn{background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;padding:9px 20px;border-radius:9px;cursor:pointer;font-size:.84rem;font-weight:700;transition:opacity .15s;display:inline-flex;align-items:center;gap:6px}
+.ai-btn:hover{opacity:.85}
+.ai-btn:disabled{opacity:.45;cursor:not-allowed}
+.ai-hint{font-size:.78rem;color:#aaa;text-align:center;padding:6px 0}
 </style>
 </head>
 <body>
@@ -81,6 +91,16 @@ td.mono{font-family:'Courier New',monospace;color:#4f6ef7;font-weight:600}
     <span class="badge">XLSX</span><span class="badge">CSV</span><span class="badge">DOCX</span>
   </div>
   <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.xlsx,.xls,.csv,.docx,.doc">
+</div>
+
+<div class="api-bar">
+  <button class="btn" style="font-size:.76rem;padding:4px 12px" onclick="toggleApiPanel()">🔑 Claude API Key</button>
+</div>
+<div class="api-key-panel" id="apiKeyPanel">
+  <label>Anthropic API Key：</label>
+  <input type="password" class="api-key-input" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off">
+  <button class="btn btn-primary" style="white-space:nowrap" onclick="saveApiKeyUI()">儲存</button>
+  <span style="font-size:.74rem;color:#aaa">儲存於瀏覽器 localStorage，不上傳</span>
 </div>
 
 <div class="sample-bar">
@@ -1294,6 +1314,114 @@ const FMT_LABELS={
   STARTECH:'StarTech.com',QSI_QUOT:'QSI 報價',GENERIC:'通用'
 };
 
+// ─── Claude AI Extraction ─────────────────────────────────────────────
+const _aiCache=new Map(); // rawId → {text, fname, fmt}
+
+function getApiKey(){return localStorage.getItem('po_claude_key')||'';}
+function toggleApiPanel(){
+  const p=document.getElementById('apiKeyPanel');
+  p.classList.toggle('show');
+  if(p.classList.contains('show'))document.getElementById('apiKeyInput').value=getApiKey();
+}
+function saveApiKeyUI(){
+  const k=document.getElementById('apiKeyInput').value.trim();
+  if(k)localStorage.setItem('po_claude_key',k);
+  document.getElementById('apiKeyPanel').classList.remove('show');
+  showToast(k?'API Key 已儲存':'已清除 API Key');
+}
+
+async function extractWithAI(rawText){
+  const key=getApiKey();
+  if(!key)throw new Error('請先設定 Claude API Key');
+  const prompt=`You are a Purchase Order data extractor. The text below may contain OCR noise or garbled characters — use context to infer the correct values.
+
+Return ONLY a valid JSON object (no explanation, no markdown) with this structure:
+{
+  "header": {"PO Number":"","Date":"","Buyer":"","Currency":"","Payment Terms":"","Delivery Terms":"","ETD":"","Companies":""},
+  "items": [{"line_no":"1","vendor_pn":"","customer_pn":"","description":"","qty":"","unit":"PCS","unit_price":"","amount":"","delivery_date":""}]
+}
+
+Rules:
+- Extract ALL line items. qty/unit_price/amount: numbers only (no commas/symbols). delivery_date: YYYY/MM/DD.
+- vendor_pn = customer_pn = the item/part code in the document.
+- Empty string for any field not found.
+
+Document text:
+${rawText.slice(0,14000)}`;
+  const resp=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'x-api-key':key,
+      'anthropic-version':'2023-06-01',
+      'content-type':'application/json',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:2048,messages:[{role:'user',content:prompt}]})
+  });
+  if(!resp.ok){const e=await resp.json().catch(()=>({}));throw new Error(e.error?.message||`HTTP ${resp.status}`);}
+  const data=await resp.json();
+  const txt=data.content[0].text;
+  const m=txt.match(/\{[\s\S]*\}/);
+  if(!m)throw new Error('回應格式錯誤');
+  return JSON.parse(m[0]);
+}
+
+const COLS_DEF=[
+  {k:'line_no',l:'Line'},{k:'vendor_pn',l:'QSI PN'},{k:'customer_pn',l:'Customer PN'},
+  {k:'description',l:'Description'},{k:'qty',l:'QTY',num:true},{k:'unit',l:'Unit'},
+  {k:'unit_price',l:'Unit Price',num:true},{k:'amount',l:'Amount',num:true},{k:'delivery_date',l:'Delivery'}
+];
+
+function buildItemsTable(items){
+  return`<div class="section-title">品項明細（${items.length} 筆）</div>
+    <div class="table-wrap"><table>
+      <thead><tr>${COLS_DEF.map(c=>`<th>${c.l}</th>`).join('')}</tr></thead>
+      <tbody>
+      ${items.map(it=>`<tr>${COLS_DEF.map(c=>`<td class="${c.num?'num':c.k==='vendor_pn'||c.k==='customer_pn'?'mono':''}">${it[c.k]||'—'}</td>`).join('')}</tr>`).join('')}
+      ${items.some(it=>it.amount&&it.amount!=='—')?`
+      <tr class="total-row">
+        <td colspan="7" style="text-align:right">Total</td>
+        <td class="num">${items.reduce((s,it)=>s+(parseFloat((it.amount||'0').replace(/,/g,''))||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+        <td></td>
+      </tr>`:''}
+      </tbody>
+    </table></div>`;
+}
+
+async function aiExtract(btn,rawId){
+  btn.disabled=true;
+  btn.textContent='⏳ AI 分析中…';
+  const statusEl=btn.nextElementSibling;
+  try{
+    const cached=_aiCache.get(rawId);
+    const result=await extractWithAI(cached.text);
+    const items=(result.items||[]).filter(it=>it.vendor_pn||it.qty);
+    if(!items.length)throw new Error('AI 未找到品項明細');
+    items.forEach(it=>allExport.push({file:cached.fname,format:cached.fmt+'(AI)',...(result.header||{}),...it}));
+    document.getElementById('btnExport').style.display='inline-block';
+    // Replace the no-items block with the real table + update header if empty
+    const card=btn.closest('.card');
+    btn.closest('.no-items-wrap').outerHTML=buildItemsTable(items);
+    // Fill in header pills if previously empty
+    const metaRow=card.querySelector('.meta-row');
+    if(!metaRow&&result.header){
+      const hFields=Object.entries(result.header).filter(([,v])=>v);
+      if(hFields.length){
+        const pillsHtml=`<div class="meta-row">${hFields.map(([k,v])=>`
+          <div class="meta-pill" onclick="copyV('${v.replace(/'/g,"\\'")}')">
+            <div class="ml">${k}</div><div class="mv">${v}</div>
+          </div>`).join('')}</div>`;
+        card.querySelector('.card-body').insertAdjacentHTML('afterbegin',pillsHtml);
+      }
+    }
+    showToast('✅ AI 提取完成');
+  }catch(e){
+    btn.disabled=false;
+    btn.textContent='🤖 重試 AI 提取';
+    if(statusEl)statusEl.textContent='❌ '+e.message;
+  }
+}
+
 // ─── Render ─────────────────────────────────────────────────────────
 let allExport=[];
 
@@ -1339,6 +1467,9 @@ function render(file,text,flags={}){
   }
 
   const rawId='raw_'+Math.random().toString(36).slice(2);
+  // Store text for AI extraction fallback
+  _aiCache.set(rawId,{text,fname:file.name,fmt});
+
   const card=document.createElement('div');
   card.className='card';
 
@@ -1351,33 +1482,17 @@ function render(file,text,flags={}){
         </div>`).join('')}</div>`
     :`<div class="warn">⚠️ 未找到訂單抬頭資訊</div>`;
 
-  const COLS=[
-    {k:'line_no',l:'Line'},
-    {k:'vendor_pn',l:'QSI PN'},
-    {k:'customer_pn',l:'Customer PN'},
-    {k:'description',l:'Description'},
-    {k:'qty',l:'QTY',num:true},
-    {k:'unit',l:'Unit'},
-    {k:'unit_price',l:'Unit Price',num:true},
-    {k:'amount',l:'Amount',num:true},
-    {k:'delivery_date',l:'Delivery'},
-  ];
-
+  const hasApiKey=!!getApiKey();
   const tableHtml=items.length
-    ?`<div class="section-title">品項明細（${items.length} 筆）</div>
-      <div class="table-wrap"><table>
-        <thead><tr>${COLS.map(c=>`<th>${c.l}</th>`).join('')}</tr></thead>
-        <tbody>
-        ${items.map(it=>`<tr>${COLS.map(c=>`<td class="${c.num?'num':c.k==='vendor_pn'||c.k==='customer_pn'?'mono':''}">${it[c.k]||'—'}</td>`).join('')}</tr>`).join('')}
-        ${items.some(it=>it.amount&&it.amount!=='—')?`
-        <tr class="total-row">
-          <td colspan="7" style="text-align:right">Total</td>
-          <td class="num">${items.reduce((s,it)=>s+(parseFloat((it.amount||'0').replace(/,/g,''))||0),0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>
-          <td></td>
-        </tr>`:''}
-        </tbody>
-      </table></div>`
-    :`<div class="no-items">⚠️ 未識別出品項明細（可展開原始文字確認格式）</div>`;
+    ? buildItemsTable(items)
+    :`<div class="no-items-wrap" style="text-align:center;padding:18px">
+        <div style="color:#aaa;font-size:.85rem;margin-bottom:10px">⚠️ 未識別出品項明細</div>
+        ${hasApiKey
+          ?`<button class="ai-btn" onclick="aiExtract(this,'${rawId}')">🤖 AI 智能提取</button>
+             <div class="ai-hint" id="ai-hint-${rawId}"></div>`
+          :`<div class="ai-hint">設定 Claude API Key 可啟用 AI 智能提取</div>`
+        }
+      </div>`;
 
   card.innerHTML=`
     <div class="card-head">
