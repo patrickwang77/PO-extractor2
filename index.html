@@ -97,10 +97,16 @@ td.mono{font-family:'Courier New',monospace;color:#4f6ef7;font-weight:600}
   <button class="btn" style="font-size:.76rem;padding:4px 12px" onclick="toggleApiPanel()">🔑 Claude API Key</button>
 </div>
 <div class="api-key-panel" id="apiKeyPanel">
-  <label>Anthropic API Key：</label>
+  <label>API Key：</label>
   <input type="password" class="api-key-input" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off">
+  <label style="margin-left:6px">模型：</label>
+  <select id="modelSelect" style="border:1.5px solid #e0e4f0;border-radius:7px;padding:5px 8px;font-size:.8rem;background:#fff;cursor:pointer;outline:none">
+    <option value="claude-haiku-4-5-20251001">Haiku 4.5 — 快速省錢</option>
+    <option value="claude-sonnet-4-6">Sonnet 4.6 — 均衡</option>
+    <option value="claude-opus-4-8">Opus 4.8 — 最強</option>
+  </select>
   <button class="btn btn-primary" style="white-space:nowrap" onclick="saveApiKeyUI()">儲存</button>
-  <span style="font-size:.74rem;color:#aaa">儲存於瀏覽器 localStorage，不上傳</span>
+  <span style="font-size:.74rem;color:#aaa">儲存於 localStorage，不上傳</span>
 </div>
 
 <div class="sample-bar">
@@ -1317,17 +1323,29 @@ const FMT_LABELS={
 // ─── Claude AI Extraction ─────────────────────────────────────────────
 const _aiCache=new Map(); // rawId → {text, fname, fmt}
 
+const MODELS=[
+  {id:'claude-haiku-4-5-20251001', label:'Haiku 4.5'},
+  {id:'claude-sonnet-4-6',         label:'Sonnet 4.6'},
+  {id:'claude-opus-4-8',           label:'Opus 4.8'},
+];
 function getApiKey(){return localStorage.getItem('po_claude_key')||'';}
+function getModel(){return localStorage.getItem('po_claude_model')||MODELS[0].id;}
 function toggleApiPanel(){
   const p=document.getElementById('apiKeyPanel');
   p.classList.toggle('show');
-  if(p.classList.contains('show'))document.getElementById('apiKeyInput').value=getApiKey();
+  if(p.classList.contains('show')){
+    document.getElementById('apiKeyInput').value=getApiKey();
+    document.getElementById('modelSelect').value=getModel();
+  }
 }
 function saveApiKeyUI(){
   const k=document.getElementById('apiKeyInput').value.trim();
+  const m=document.getElementById('modelSelect').value;
   if(k)localStorage.setItem('po_claude_key',k);
+  localStorage.setItem('po_claude_model',m);
   document.getElementById('apiKeyPanel').classList.remove('show');
-  showToast(k?'API Key 已儲存':'已清除 API Key');
+  const mLabel=MODELS.find(x=>x.id===m)?.label||m;
+  showToast(`已儲存｜模型：${mLabel}`);
 }
 
 async function extractWithAI(rawText){
@@ -1356,7 +1374,7 @@ ${rawText.slice(0,14000)}`;
       'content-type':'application/json',
       'anthropic-dangerous-direct-browser-access':'true'
     },
-    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:2048,messages:[{role:'user',content:prompt}]})
+    body:JSON.stringify({model:getModel(),max_tokens:2048,messages:[{role:'user',content:prompt}]})
   });
   if(!resp.ok){const e=await resp.json().catch(()=>({}));throw new Error(e.error?.message||`HTTP ${resp.status}`);}
   const data=await resp.json();
@@ -1488,7 +1506,7 @@ function render(file,text,flags={}){
     :`<div class="no-items-wrap" style="text-align:center;padding:18px">
         <div style="color:#aaa;font-size:.85rem;margin-bottom:10px">⚠️ 未識別出品項明細</div>
         ${hasApiKey
-          ?`<button class="ai-btn" onclick="aiExtract(this,'${rawId}')">🤖 AI 智能提取</button>
+          ?`<button class="ai-btn" onclick="aiExtract(this,'${rawId}')">🤖 AI 提取 <span style="opacity:.7;font-size:.75em">(${(MODELS.find(x=>x.id===getModel())||MODELS[0]).label})</span></button>
              <div class="ai-hint" id="ai-hint-${rawId}"></div>`
           :`<div class="ai-hint">設定 Claude API Key 可啟用 AI 智能提取</div>`
         }
